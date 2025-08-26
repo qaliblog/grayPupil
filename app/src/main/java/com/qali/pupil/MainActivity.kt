@@ -41,7 +41,7 @@ import java.util.concurrent.Executors
 class MainActivity : AppCompatActivity() {
     private lateinit var previewView: androidx.camera.view.PreviewView
     private lateinit var cameraExecutor: ExecutorService
-    private lateinit var tflite: Interpreter
+    private var tflite: Interpreter? = null
     private lateinit var overlayView: GazeOverlayView
     private var isOpenCVLoaded = false
     private var faceContours = mutableListOf<MatOfPoint>()
@@ -91,7 +91,15 @@ class MainActivity : AppCompatActivity() {
         findViewById<android.widget.FrameLayout>(R.id.overlayContainer).addView(overlayView)
         
         cameraExecutor = Executors.newSingleThreadExecutor()
-        tflite = Interpreter(loadModelFile("gaze_model.tflite"))
+        
+        // Try to load gaze model, but don't crash if it's missing
+        try {
+            tflite = Interpreter(loadModelFile("gaze_model.tflite"))
+            Log.d(TAG, "Gaze model loaded successfully")
+        } catch (e: Exception) {
+            Log.w(TAG, "Gaze model not found, using mock gaze estimation: ${e.message}")
+            tflite = null
+        }
 
         if (allPermissionsGranted()) {
             startCamera()
@@ -255,18 +263,25 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun estimateGaze(leftEye: Bitmap, rightEye: Bitmap): Pair<Float, Float> {
-        val inputBuffer = ByteBuffer.allocateDirect(2 * INPUT_SIZE * INPUT_SIZE * 3 * 4)
-            .order(ByteOrder.nativeOrder())
-        
-        addEyeToBuffer(leftEye, inputBuffer)
-        addEyeToBuffer(rightEye, inputBuffer)
-        
-        val output = Array(1) { FloatArray(2) }
-        tflite.run(inputBuffer, output)
-        return Pair(output[0][0], output[0][1])
+        return tflite?.let { interpreter ->
+            val inputBuffer = ByteBuffer.allocateDirect(2 * INPUT_SIZE * INPUT_SIZE * 3 * 4)
+                .order(ByteOrder.nativeOrder())
+            
+            addEyeToBuffer(leftEye, inputBuffer)
+            addEyeToBuffer(rightEye, inputBuffer)
+            
+            val output = Array(1) { FloatArray(2) }
+            interpreter.run(inputBuffer, output)
+            Pair(output[0][0], output[0][1])
+        } ?: run {
+            // Mock gaze estimation - return center of screen
+            Pair(0.5f, 0.5f)
+        }
     }
 
     private fun addEyeToBuffer(bitmap: Bitmap, buffer: ByteBuffer) {
+        if (tflite == null) return // Skip if no model available
+        
         val pixels = IntArray(INPUT_SIZE * INPUT_SIZE)
         bitmap.getPixels(pixels, 0, INPUT_SIZE, 0, 0, INPUT_SIZE, INPUT_SIZE)
         
@@ -360,7 +375,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        tflite.close()
+        tflite?.close()
         cameraExecutor.shutdown()
     }
 }
