@@ -97,16 +97,27 @@ class MainActivity : AppCompatActivity() {
         processedFrameView.updateFrame(testBitmap)
         Log.d(TAG, "Green test bitmap displayed")
         
-        // Remove test bitmap after 3 seconds
+        // Remove test bitmap after 3 seconds and show camera status
         processedFrameView.postDelayed({
-            Log.d(TAG, "Removing test bitmap")
+            Log.d(TAG, "Removing test bitmap, checking camera status")
+            val statusBitmap = Bitmap.createBitmap(400, 300, Bitmap.Config.ARGB_8888)
+            statusBitmap.eraseColor(Color.CYAN)
+            val canvas = Canvas(statusBitmap)
+            val paint = Paint().apply {
+                color = Color.BLACK
+                textSize = 24f
+            }
+            canvas.drawText("Waiting for camera...", 20f, 150f, paint)
+            processedFrameView.updateFrame(statusBitmap)
         }, 3000)
         
         cameraExecutor = Executors.newSingleThreadExecutor()
 
         if (allPermissionsGranted()) {
+            Log.d(TAG, "Camera permission granted, starting camera")
             startCamera()
         } else {
+            Log.w(TAG, "Camera permission not granted, requesting permission")
             requestPermissions(arrayOf(android.Manifest.permission.CAMERA), CAMERA_PERMISSION_CODE)
         }
     }
@@ -126,8 +137,10 @@ class MainActivity : AppCompatActivity() {
         ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
 
     private fun startCamera() {
+        Log.d(TAG, "Starting camera...")
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
         cameraProviderFuture.addListener({
+            Log.d(TAG, "Camera provider ready")
             val cameraProvider = cameraProviderFuture.get()
             val preview = Preview.Builder().build().also {
                 it.setSurfaceProvider(previewView.surfaceProvider)
@@ -139,6 +152,7 @@ class MainActivity : AppCompatActivity() {
                 .build()
                 .also {
                     it.setAnalyzer(cameraExecutor, ContourAnalyzer())
+                    Log.d(TAG, "Image analyzer set")
                 }
 
             try {
@@ -149,8 +163,22 @@ class MainActivity : AppCompatActivity() {
                     preview,
                     imageAnalysis
                 )
+                Log.d(TAG, "Camera bound successfully")
             } catch(e: Exception) {
                 Log.e(TAG, "Camera binding failed", e)
+                // Show error on screen
+                runOnUiThread {
+                    val errorBitmap = Bitmap.createBitmap(400, 300, Bitmap.Config.ARGB_8888)
+                    errorBitmap.eraseColor(Color.RED)
+                    val canvas = Canvas(errorBitmap)
+                    val paint = Paint().apply {
+                        color = Color.WHITE
+                        textSize = 20f
+                    }
+                    canvas.drawText("Camera Error:", 20f, 100f, paint)
+                    canvas.drawText(e.message ?: "Unknown error", 20f, 150f, paint)
+                    processedFrameView.updateFrame(errorBitmap)
+                }
             }
         }, ContextCompat.getMainExecutor(this))
     }
@@ -394,6 +422,32 @@ class MainActivity : AppCompatActivity() {
         hierarchy.release()
         
         return filteredContours
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == CAMERA_PERMISSION_CODE) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                Log.d(TAG, "Camera permission granted after request")
+                startCamera()
+            } else {
+                Log.e(TAG, "Camera permission denied")
+                val errorBitmap = Bitmap.createBitmap(400, 300, Bitmap.Config.ARGB_8888)
+                errorBitmap.eraseColor(Color.RED)
+                val canvas = Canvas(errorBitmap)
+                val paint = Paint().apply {
+                    color = Color.WHITE
+                    textSize = 20f
+                }
+                canvas.drawText("Camera permission", 20f, 100f, paint)
+                canvas.drawText("required", 20f, 150f, paint)
+                processedFrameView.updateFrame(errorBitmap)
+            }
+        }
     }
 
     override fun onDestroy() {
