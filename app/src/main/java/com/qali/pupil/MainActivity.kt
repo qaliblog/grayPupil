@@ -125,14 +125,9 @@ class MainActivity : AppCompatActivity() {
                 val availableCameras = cameraProvider.availableCameraInfos
                 Log.d(TAG, "Available cameras: ${availableCameras.size}")
                 
-                // Try back camera first, then front camera
-                val cameraSelector = try {
-                    Log.d(TAG, "Trying back camera...")
-                    CameraSelector.DEFAULT_BACK_CAMERA
-                } catch (e: Exception) {
-                    Log.d(TAG, "Back camera failed, trying front camera...")
-                    CameraSelector.DEFAULT_FRONT_CAMERA
-                }
+                // Use front camera for face detection
+                Log.d(TAG, "Using front camera...")
+                val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
                 
                 // Create image analysis only - skip preview for now
                 val imageAnalysis = ImageAnalysis.Builder()
