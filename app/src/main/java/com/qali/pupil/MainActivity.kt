@@ -4,9 +4,11 @@ package com.qali.pupil
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Matrix
+import android.graphics.Paint
 import android.graphics.Rect
-import android.graphics.RectF
 import android.os.Bundle
 import android.util.Log
 import android.util.Size
@@ -17,10 +19,7 @@ import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.face.Face
-import com.google.mlkit.vision.face.FaceDetection
-import com.google.mlkit.vision.face.FaceDetectorOptions
+
 import org.opencv.android.BaseLoaderCallback
 import org.opencv.android.LoaderCallbackInterface
 import org.opencv.android.OpenCVLoader
@@ -29,22 +28,15 @@ import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
 import org.opencv.core.Size as OpenCVSize
 import org.opencv.imgproc.Imgproc
-import org.tensorflow.lite.Interpreter
-import java.io.FileInputStream
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
-import java.nio.MappedByteBuffer
-import java.nio.channels.FileChannel
+
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity() {
     private lateinit var previewView: androidx.camera.view.PreviewView
     private lateinit var cameraExecutor: ExecutorService
-    private var tflite: Interpreter? = null
-    private lateinit var overlayView: GazeOverlayView
     private var isOpenCVLoaded = false
-    private var faceContours = mutableListOf<MatOfPoint>()
+    private var processedFrame: Bitmap? = null
 
     // OpenCV loader callback
     private val openCVLoaderCallback = object : BaseLoaderCallback(this) {
@@ -60,26 +52,10 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
-    
-    // Face detection components
-    private val detector by lazy {
-        val options = FaceDetectorOptions.Builder()
-            .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
-            .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
-            .build()
-        FaceDetection.getClient(options)
-    }
-
-    // Model parameters
-    private val INPUT_SIZE = 64
-    private val GAZE_HISTORY_SIZE = 5
-    private val gazeHistory = mutableListOf<Pair<Float, Float>>()
 
     companion object {
-        private const val TAG = "EyeTracking"
+        private const val TAG = "ContourDetection"
         private const val CAMERA_PERMISSION_CODE = 101
-        private const val LEFT_EYE = 2  // FaceLandmark.LEFT_EYE
-        private const val RIGHT_EYE = 7 // FaceLandmark.RIGHT_EYE
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -87,19 +63,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
         
         previewView = findViewById(R.id.previewView)
-        overlayView = GazeOverlayView(this)
-        findViewById<android.widget.FrameLayout>(R.id.overlayContainer).addView(overlayView)
-        
         cameraExecutor = Executors.newSingleThreadExecutor()
-        
-        // Try to load gaze model, but don't crash if it's missing
-        try {
-            tflite = Interpreter(loadModelFile("gaze_model.tflite"))
-            Log.d(TAG, "Gaze model loaded successfully")
-        } catch (e: Exception) {
-            Log.w(TAG, "Gaze model not found, using mock gaze estimation: ${e.message}")
-            tflite = null
-        }
 
         if (allPermissionsGranted()) {
             startCamera()
@@ -135,7 +99,7 @@ class MainActivity : AppCompatActivity() {
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
                 .also {
-                    it.setAnalyzer(cameraExecutor, FaceAnalyzer())
+                    it.setAnalyzer(cameraExecutor, ContourAnalyzer())
                 }
 
             try {
@@ -152,119 +116,77 @@ class MainActivity : AppCompatActivity() {
         }, ContextCompat.getMainExecutor(this))
     }
 
-    private inner class FaceAnalyzer : ImageAnalysis.Analyzer {
+    private inner class ContourAnalyzer : ImageAnalysis.Analyzer {
         override fun analyze(imageProxy: ImageProxy) {
-            val mediaImage = imageProxy.image ?: return
-            val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
-            
-            detector.process(image)
-                .addOnSuccessListener { faces: List<Face> ->
-                    Log.d(TAG, "Detected ${faces.size} faces")
-                    if (faces.isNotEmpty()) {
-                        Log.d(TAG, "Processing face with bounds: ${faces[0].boundingBox}")
-                        processFace(faces[0], imageProxy)
-                    } else {
-                        // No faces detected, show center gaze point
-                        runOnUiThread {
-                            overlayView.updateGazePoint(0.5f, 0.5f)
-                        }
-                    }
+            if (!isOpenCVLoaded) {
+                imageProxy.close()
+                return
+            }
+
+            try {
+                // Convert imageProxy to bitmap
+                val bitmap = imageProxy.toBitmap()
+                
+                // Apply contrast enhancement
+                val enhancedBitmap = enhanceContrast(bitmap)
+                
+                // Detect contours and draw them on the enhanced bitmap
+                val contourBitmap = drawContoursOnBitmap(enhancedBitmap)
+                
+                // Store the processed frame
+                processedFrame = contourBitmap
+                
+                Log.d(TAG, "Processed frame with contrast enhancement and contours")
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "Error processing frame: ${e.message}")
+            } finally {
+                imageProxy.close()
+            }
+        }
+    }
+
+    private fun drawContoursOnBitmap(bitmap: Bitmap): Bitmap {
+        if (!isOpenCVLoaded) return bitmap
+        
+        // Detect contours
+        val contours = detectImageContours(bitmap)
+        
+        // Create a mutable copy of the bitmap to draw on
+        val mutableBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = Canvas(mutableBitmap)
+        
+        // Paint for green squares
+        val paint = Paint().apply {
+            color = Color.GREEN
+            style = Paint.Style.FILL
+            isAntiAlias = true
+        }
+        
+        // Draw green squares at contour points
+        for (contour in contours) {
+            val points = contour.toArray()
+            if (points.isNotEmpty()) {
+                val step = maxOf(1, points.size / 20) // Sample points
+                for (i in points.indices step step) {
+                    val point = points[i]
+                    val squareSize = 12f
+                    
+                    canvas.drawRect(
+                        point.x.toFloat() - squareSize / 2,
+                        point.y.toFloat() - squareSize / 2,
+                        point.x.toFloat() + squareSize / 2,
+                        point.y.toFloat() + squareSize / 2,
+                        paint
+                    )
                 }
-                .addOnCompleteListener { imageProxy.close() }
-        }
-    }
-
-    private fun processFace(face: Face, imageProxy: ImageProxy) {
-        val leftEye = face.getLandmark(LEFT_EYE)?.position
-        val rightEye = face.getLandmark(RIGHT_EYE)?.position
-        
-        if (leftEye == null || rightEye == null) return
-
-        val eyeSize = (face.boundingBox.width() * 0.18).toInt()
-        val leftEyeRect = RectF(
-            leftEye.x - eyeSize,
-            leftEye.y - eyeSize,
-            leftEye.x + eyeSize,
-            leftEye.y + eyeSize
-        )
-        val rightEyeRect = RectF(
-            rightEye.x - eyeSize,
-            rightEye.y - eyeSize,
-            rightEye.x + eyeSize,
-            rightEye.y + eyeSize
-        )
-
-        val leftEyeBitmap = cropAndConvert(imageProxy, leftEyeRect)
-        val rightEyeBitmap = cropAndConvert(imageProxy, rightEyeRect)
-        
-        // Get the full face area for contour detection
-        val faceBitmap = cropAndConvert(imageProxy, face.boundingBox)
-        
-        // Apply contrast enhancement and detect face contours
-        val enhancedFace = enhanceContrast(faceBitmap)
-        val detectedContours = detectFaceContours(enhancedFace)
-        
-        Log.d(TAG, "Detected ${detectedContours.size} contours")
-        
-        // Store contours for visualization
-        faceContours.clear()
-        faceContours.addAll(detectedContours)
-        
-        val gaze = estimateGaze(leftEyeBitmap, rightEyeBitmap)
-        gazeHistory.add(gaze)
-        if (gazeHistory.size > GAZE_HISTORY_SIZE) gazeHistory.removeAt(0)
-
-        val avgGaze = Pair(
-            gazeHistory.map { it.first }.average().toFloat(),
-            gazeHistory.map { it.second }.average().toFloat()
-        )
-
-        runOnUiThread {
-            overlayView.updateGazeAndContours(avgGaze.first, avgGaze.second, faceContours, face.boundingBox)
-        }
-    }
-
-    private fun cropAndConvert(imageProxy: ImageProxy, rect: Rect): Bitmap {
-        val matrix = Matrix().apply {
-            postRotate(-imageProxy.imageInfo.rotationDegrees.toFloat())
-            postScale(1f, -1f)
+            }
         }
         
-        val bitmap = imageProxy.toBitmap()
-        return Bitmap.createScaledBitmap(
-            Bitmap.createBitmap(bitmap, 
-                rect.left, 
-                rect.top,
-                rect.width(),
-                rect.height(),
-                matrix,
-                true),
-            INPUT_SIZE,
-            INPUT_SIZE,
-            true
-        )
+        return mutableBitmap
     }
 
-    private fun cropAndConvert(imageProxy: ImageProxy, rect: RectF): Bitmap {
-        val matrix = Matrix().apply {
-            postRotate(-imageProxy.imageInfo.rotationDegrees.toFloat())
-            postScale(1f, -1f)
-        }
-        
-        val bitmap = imageProxy.toBitmap()
-        return Bitmap.createScaledBitmap(
-            Bitmap.createBitmap(bitmap, 
-                rect.left.toInt(), 
-                rect.top.toInt(),
-                rect.width().toInt(),
-                rect.height().toInt(),
-                matrix,
-                true),
-            INPUT_SIZE,
-            INPUT_SIZE,
-            true
-        )
-    }
+
 
     private fun ImageProxy.toBitmap(): Bitmap {
         val buffer = planes[0].buffer
@@ -273,36 +195,7 @@ class MainActivity : AppCompatActivity() {
         return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
     }
 
-    private fun estimateGaze(leftEye: Bitmap, rightEye: Bitmap): Pair<Float, Float> {
-        return tflite?.let { interpreter ->
-            val inputBuffer = ByteBuffer.allocateDirect(2 * INPUT_SIZE * INPUT_SIZE * 3 * 4)
-                .order(ByteOrder.nativeOrder())
-            
-            addEyeToBuffer(leftEye, inputBuffer)
-            addEyeToBuffer(rightEye, inputBuffer)
-            
-            val output = Array(1) { FloatArray(2) }
-            interpreter.run(inputBuffer, output)
-            Pair(output[0][0], output[0][1])
-                 } ?: run {
-             // Mock gaze estimation - return center of screen
-             Log.d(TAG, "Using mock gaze estimation - center of screen")
-             Pair(0.5f, 0.5f)
-         }
-    }
-
-    private fun addEyeToBuffer(bitmap: Bitmap, buffer: ByteBuffer) {
-        if (tflite == null) return // Skip if no model available
-        
-        val pixels = IntArray(INPUT_SIZE * INPUT_SIZE)
-        bitmap.getPixels(pixels, 0, INPUT_SIZE, 0, 0, INPUT_SIZE, INPUT_SIZE)
-        
-        for (pixel in pixels) {
-            buffer.putFloat(((pixel shr 16 and 0xFF) - 127.5f) / 127.5f) // R
-            buffer.putFloat(((pixel shr 8 and 0xFF) - 127.5f) / 127.5f)  // G
-            buffer.putFloat(((pixel and 0xFF) - 127.5f) / 127.5f)         // B
-        }
-    }
+    
 
     private fun enhanceContrast(bitmap: Bitmap): Bitmap {
         if (!isOpenCVLoaded) {
@@ -333,7 +226,7 @@ class MainActivity : AppCompatActivity() {
         return resultBitmap
     }
 
-    private fun detectFaceContours(bitmap: Bitmap): List<MatOfPoint> {
+    private fun detectImageContours(bitmap: Bitmap): List<MatOfPoint> {
         if (!isOpenCVLoaded) {
             Log.w(TAG, "OpenCV not loaded, skipping contour detection")
             return emptyList()
@@ -382,20 +275,8 @@ class MainActivity : AppCompatActivity() {
         return filteredContours
     }
 
-    private fun loadModelFile(modelName: String): MappedByteBuffer {
-        val fileDescriptor = assets.openFd(modelName)
-        val inputStream = FileInputStream(fileDescriptor.fileDescriptor)
-        val fileChannel = inputStream.channel
-        return fileChannel.map(
-            FileChannel.MapMode.READ_ONLY,
-            fileDescriptor.startOffset,
-            fileDescriptor.declaredLength
-        )
-    }
-
     override fun onDestroy() {
         super.onDestroy()
-        tflite?.close()
         cameraExecutor.shutdown()
     }
 }

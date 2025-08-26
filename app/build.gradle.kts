@@ -58,10 +58,7 @@ dependencies {
     // OpenCV for contrast detection
     implementation("com.quickbirdstudios:opencv:4.5.3.0")
     
-    // Machine Learning
-    implementation("org.tensorflow:tensorflow-lite:2.14.0")
-    implementation("com.google.mlkit:face-detection:16.1.7")
-    implementation("com.google.mlkit:vision-common:17.3.0")
+
 
     // CameraX
     val cameraxVersion = "1.3.0"
