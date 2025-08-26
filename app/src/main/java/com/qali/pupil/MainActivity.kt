@@ -97,6 +97,7 @@ class MainActivity : AppCompatActivity() {
         }, 5000)
         
         cameraExecutor = Executors.newSingleThreadExecutor()
+        Log.d(TAG, "Camera executor created")
 
         if (allPermissionsGranted()) {
             Log.d(TAG, "Camera permission granted, starting camera")
@@ -116,32 +117,47 @@ class MainActivity : AppCompatActivity() {
         Log.d(TAG, "Starting camera...")
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
         cameraProviderFuture.addListener({
-            Log.d(TAG, "Camera provider ready")
-            val cameraProvider = cameraProviderFuture.get()
-            val preview = Preview.Builder().build().also {
-                it.setSurfaceProvider(previewView.surfaceProvider)
-            }
-
-            val imageAnalysis = ImageAnalysis.Builder()
-                .setTargetResolution(Size(640, 480))
-                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .build()
-                .also {
-                    it.setAnalyzer(cameraExecutor, ContourAnalyzer())
-                    Log.d(TAG, "Image analyzer set")
-                }
-
             try {
+                Log.d(TAG, "Camera provider ready")
+                val cameraProvider = cameraProviderFuture.get()
+                
+                // Check available cameras
+                val availableCameras = cameraProvider.availableCameraInfos
+                Log.d(TAG, "Available cameras: ${availableCameras.size}")
+                
+                // Try back camera first, then front camera
+                val cameraSelector = try {
+                    Log.d(TAG, "Trying back camera...")
+                    CameraSelector.DEFAULT_BACK_CAMERA
+                } catch (e: Exception) {
+                    Log.d(TAG, "Back camera failed, trying front camera...")
+                    CameraSelector.DEFAULT_FRONT_CAMERA
+                }
+                
+                // Create image analysis only - skip preview for now
+                val imageAnalysis = ImageAnalysis.Builder()
+                    .setTargetResolution(Size(640, 480))
+                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    .build()
+                    .also {
+                        it.setAnalyzer(cameraExecutor, ContourAnalyzer())
+                        Log.d(TAG, "Image analyzer set on executor")
+                    }
+
+                // Bind to lifecycle - just image analysis
                 cameraProvider.unbindAll()
-                cameraProvider.bindToLifecycle(
+                Log.d(TAG, "Unbound all previous cameras")
+                
+                val camera = cameraProvider.bindToLifecycle(
                     this,
-                    CameraSelector.DEFAULT_FRONT_CAMERA,
-                    preview,
-                    imageAnalysis
+                    cameraSelector,
+                    imageAnalysis  // Only bind image analysis, no preview
                 )
-                Log.d(TAG, "Camera bound successfully")
+                Log.d(TAG, "Camera bound successfully to lifecycle")
+                Log.d(TAG, "Camera info: ${camera.cameraInfo}")
+                
             } catch(e: Exception) {
-                Log.e(TAG, "Camera binding failed", e)
+                Log.e(TAG, "Camera setup failed", e)
                 // Show error on screen
                 runOnUiThread {
                     val errorBitmap = Bitmap.createBitmap(400, 300, Bitmap.Config.ARGB_8888)
@@ -149,10 +165,11 @@ class MainActivity : AppCompatActivity() {
                     val canvas = Canvas(errorBitmap)
                     val paint = Paint().apply {
                         color = Color.WHITE
-                        textSize = 20f
+                        textSize = 16f
                     }
-                    canvas.drawText("Camera Error:", 20f, 100f, paint)
-                    canvas.drawText(e.message ?: "Unknown error", 20f, 150f, paint)
+                    canvas.drawText("Camera Setup Failed:", 20f, 80f, paint)
+                    canvas.drawText(e.javaClass.simpleName, 20f, 110f, paint)
+                    canvas.drawText(e.message?.take(40) ?: "Unknown", 20f, 140f, paint)
                     processedFrameView.updateFrame(errorBitmap)
                 }
             }
