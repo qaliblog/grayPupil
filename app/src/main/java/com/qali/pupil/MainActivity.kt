@@ -217,9 +217,9 @@ class MainActivity : AppCompatActivity() {
                 Log.d(TAG, "Using front camera...")
                 val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
                 
-                // Create image analysis only - skip preview for now
+                // Create image analysis with portrait resolution
                 val imageAnalysis = ImageAnalysis.Builder()
-                    .setTargetResolution(Size(640, 480))
+                    .setTargetResolution(Size(480, 640)) // Portrait: height > width
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                     .build()
                     .also {
@@ -354,11 +354,11 @@ class MainActivity : AppCompatActivity() {
             bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
             Log.d(TAG, "Original bitmap: ${bitmap.width}x${bitmap.height}")
             
-            // TEMPORARY: Test with NO rotation to see natural orientation
+            // Try 90 degrees clockwise rotation for portrait
             val rotationDegrees = imageInfo.rotationDegrees
             val matrix = Matrix().apply {
-                Log.d(TAG, "TESTING: No rotation applied to see natural camera orientation")
-                // Apply no rotation to see what we get naturally
+                Log.d(TAG, "Applying 90° clockwise rotation to fix landscape")
+                postRotate(90f) // 90 degrees clockwise
             }
             
             val finalBitmap = Bitmap.createBitmap(bitmap, 0, 0, width, height, matrix, true)
