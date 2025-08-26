@@ -366,12 +366,12 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             
-            // TRANSPOSE PIXELS: Swap x,y coordinates manually
+            // TRANSPOSE PIXELS: Try counter-clockwise rotation
             val transposedPixels = IntArray(width * height)
             for (row in 0 until height) {
                 for (col in 0 until width) {
                     val originalIndex = row * width + col
-                    val transposedIndex = col * height + (height - 1 - row) // Rotate 90° clockwise
+                    val transposedIndex = (width - 1 - col) * height + row // Rotate 90° counter-clockwise
                     transposedPixels[transposedIndex] = originalPixels[originalIndex]
                 }
             }
