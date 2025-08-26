@@ -13,15 +13,18 @@ class ContrastFaceDetector {
     companion object {
         private const val TAG = "ContrastFaceDetector"
         
-        // Face detection parameters
-        private const val MIN_FACE_SIZE = 80
-        private const val MAX_FACE_SIZE = 400
-        private const val GAUSSIAN_BLUR_SIZE = 5
-        private const val CANNY_THRESHOLD_1 = 50.0
-        private const val CANNY_THRESHOLD_2 = 150.0
-        private const val CONTOUR_AREA_THRESHOLD = 3000.0
-        private const val ASPECT_RATIO_MIN = 0.6
-        private const val ASPECT_RATIO_MAX = 1.4
+        // Face detection parameters - Made more permissive
+        private const val MIN_FACE_SIZE = 50        // Reduced from 80
+        private const val MAX_FACE_SIZE = 600       // Increased from 400
+        private const val GAUSSIAN_BLUR_SIZE = 3    // Reduced from 5 for better edge preservation
+        private const val CANNY_THRESHOLD_1 = 30.0  // Reduced from 50 for more sensitive edge detection
+        private const val CANNY_THRESHOLD_2 = 100.0 // Reduced from 150
+        private const val CONTOUR_AREA_THRESHOLD = 1000.0  // Reduced from 3000
+        private const val ASPECT_RATIO_MIN = 0.5    // More permissive from 0.6
+        private const val ASPECT_RATIO_MAX = 2.0    // More permissive from 1.4
+        private const val FILL_RATIO_MIN = 0.2      // More permissive from 0.4
+        private const val FILL_RATIO_MAX = 0.9      // More permissive from 0.8
+        private const val CONVEXITY_RATIO_MIN = 0.5 // More permissive from 0.7
     }
 
     private val grayMat = Mat()
@@ -32,12 +35,15 @@ class ContrastFaceDetector {
 
     fun detectFaces(bitmap: Bitmap): List<RectF> {
         try {
+            Log.d(TAG, "Starting face detection on bitmap: ${bitmap.width}x${bitmap.height}")
+            
             // Convert bitmap to OpenCV Mat
             val rgbMat = Mat(bitmap.height, bitmap.width, CvType.CV_8UC3)
             Utils.bitmapToMat(bitmap, rgbMat)
             
             // Convert to grayscale
             Imgproc.cvtColor(rgbMat, grayMat, Imgproc.COLOR_RGB2GRAY)
+            Log.d(TAG, "Converted to grayscale: ${grayMat.rows()}x${grayMat.cols()}")
             
             // Apply Gaussian blur to reduce noise
             Imgproc.GaussianBlur(grayMat, blurredMat, Size(GAUSSIAN_BLUR_SIZE.toDouble(), GAUSSIAN_BLUR_SIZE.toDouble()), 0.0)
@@ -49,12 +55,18 @@ class ContrastFaceDetector {
             contours.clear()
             Imgproc.findContours(edgesMat, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
             
+            Log.d(TAG, "Found ${contours.size} contours")
+            
             // Filter contours to find potential face regions
             val faceRegions = mutableListOf<RectF>()
+            var validContourCount = 0
             
-            for (contour in contours) {
+            for (i in contours.indices) {
+                val contour = contours[i]
                 val boundingRect = Imgproc.boundingRect(contour)
                 val area = Imgproc.contourArea(contour)
+                
+                Log.d(TAG, "Contour $i: area=$area, rect=${boundingRect.width}x${boundingRect.height}")
                 
                 // Filter by area and size constraints
                 if (area > CONTOUR_AREA_THRESHOLD && 
@@ -63,27 +75,47 @@ class ContrastFaceDetector {
                     boundingRect.width <= MAX_FACE_SIZE && 
                     boundingRect.height <= MAX_FACE_SIZE) {
                     
+                    validContourCount++
+                    Log.d(TAG, "Contour $i passed size filter")
+                    
                     // Check aspect ratio (faces are roughly oval/circular)
                     val aspectRatio = boundingRect.width.toDouble() / boundingRect.height.toDouble()
+                    Log.d(TAG, "Contour $i aspect ratio: $aspectRatio")
                     
                     if (aspectRatio >= ASPECT_RATIO_MIN && aspectRatio <= ASPECT_RATIO_MAX) {
+                        Log.d(TAG, "Contour $i passed aspect ratio filter")
+                        
                         // Additional validation: check contour density and shape
                         if (isValidFaceContour(contour, boundingRect)) {
+                            Log.d(TAG, "Contour $i passed face validation - adding as face region")
+                            
                             faceRegions.add(RectF(
                                 boundingRect.x.toFloat(),
                                 boundingRect.y.toFloat(),
                                 (boundingRect.x + boundingRect.width).toFloat(),
                                 (boundingRect.y + boundingRect.height).toFloat()
                             ))
+                        } else {
+                            Log.d(TAG, "Contour $i failed face validation")
                         }
+                    } else {
+                        Log.d(TAG, "Contour $i failed aspect ratio filter")
                     }
+                } else {
+                    Log.d(TAG, "Contour $i failed size filter: area=$area (min=${CONTOUR_AREA_THRESHOLD}), size=${boundingRect.width}x${boundingRect.height}")
                 }
             }
             
-            // Sort by area (largest first) and return the most likely face
-            return faceRegions.sortedByDescending { 
+            Log.d(TAG, "Valid contours after size filter: $validContourCount")
+            Log.d(TAG, "Final face regions found: ${faceRegions.size}")
+            
+            // Sort by area (largest first) and return top candidates
+            val sortedFaces = faceRegions.sortedByDescending { 
                 (it.right - it.left) * (it.bottom - it.top) 
-            }.take(1)
+            }.take(3) // Take top 3 candidates instead of just 1
+            
+            Log.d(TAG, "Returning ${sortedFaces.size} face regions")
+            return sortedFaces
             
         } catch (e: Exception) {
             Log.e(TAG, "Error in face detection", e)
@@ -98,8 +130,11 @@ class ContrastFaceDetector {
             val rectArea = (boundingRect.width * boundingRect.height).toDouble()
             val fillRatio = contourArea / rectArea
             
-            // Faces typically have a fill ratio between 0.4 and 0.8
-            if (fillRatio < 0.4 || fillRatio > 0.8) {
+            Log.d(TAG, "Fill ratio: $fillRatio (contour area: $contourArea, rect area: $rectArea)")
+            
+            // More permissive fill ratio for faces
+            if (fillRatio < FILL_RATIO_MIN || fillRatio > FILL_RATIO_MAX) {
+                Log.d(TAG, "Fill ratio validation failed: $fillRatio not in range [$FILL_RATIO_MIN, $FILL_RATIO_MAX]")
                 return false
             }
             
@@ -110,20 +145,81 @@ class ContrastFaceDetector {
             val contourArray = contour.toArray()
             
             for (hullIndex in hull.toArray()) {
-                hullPoints.add(contourArray[hullIndex])
+                if (hullIndex < contourArray.size) {
+                    hullPoints.add(contourArray[hullIndex])
+                }
             }
             
-            if (hullPoints.size < 3) return false
+            if (hullPoints.size < 3) {
+                Log.d(TAG, "Convexity validation failed: insufficient hull points")
+                return false
+            }
             
             val hullArea = abs(Imgproc.contourArea(MatOfPoint(*hullPoints.toTypedArray())))
-            val convexityRatio = contourArea / hullArea
+            val convexityRatio = if (hullArea > 0) contourArea / hullArea else 0.0
             
-            // Faces should have a reasonable convexity ratio
-            return convexityRatio > 0.7
+            Log.d(TAG, "Convexity ratio: $convexityRatio")
+            
+            // More permissive convexity ratio
+            val isValidConvexity = convexityRatio > CONVEXITY_RATIO_MIN
+            if (!isValidConvexity) {
+                Log.d(TAG, "Convexity validation failed: $convexityRatio <= $CONVEXITY_RATIO_MIN")
+            }
+            
+            return isValidConvexity
             
         } catch (e: Exception) {
             Log.e(TAG, "Error validating contour", e)
             return false
+        }
+    }
+    
+    // Alternative simpler detection method for debugging
+    fun detectFacesSimple(bitmap: Bitmap): List<RectF> {
+        try {
+            Log.d(TAG, "Starting SIMPLE face detection")
+            
+            val rgbMat = Mat(bitmap.height, bitmap.width, CvType.CV_8UC3)
+            Utils.bitmapToMat(bitmap, rgbMat)
+            
+            Imgproc.cvtColor(rgbMat, grayMat, Imgproc.COLOR_RGB2GRAY)
+            
+            // Very permissive edge detection
+            Imgproc.Canny(grayMat, edgesMat, 20.0, 60.0)
+            
+            contours.clear()
+            Imgproc.findContours(edgesMat, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
+            
+            Log.d(TAG, "Simple method found ${contours.size} contours")
+            
+            val faceRegions = mutableListOf<RectF>()
+            
+            for (contour in contours) {
+                val boundingRect = Imgproc.boundingRect(contour)
+                val area = Imgproc.contourArea(contour)
+                
+                // Very basic filtering - just size
+                if (area > 500 && 
+                    boundingRect.width >= 30 && 
+                    boundingRect.height >= 30 &&
+                    boundingRect.width <= 800 && 
+                    boundingRect.height <= 800) {
+                    
+                    faceRegions.add(RectF(
+                        boundingRect.x.toFloat(),
+                        boundingRect.y.toFloat(),
+                        (boundingRect.x + boundingRect.width).toFloat(),
+                        (boundingRect.y + boundingRect.height).toFloat()
+                    ))
+                }
+            }
+            
+            Log.d(TAG, "Simple method returning ${faceRegions.size} regions")
+            return faceRegions.take(5)
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in simple face detection", e)
+            return emptyList()
         }
     }
     

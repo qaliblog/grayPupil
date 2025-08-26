@@ -131,10 +131,28 @@ class MainActivity : AppCompatActivity() {
             
             try {
                 val bitmap = imageProxy.toBitmap()
-                val faces = contrastFaceDetector.detectFaces(bitmap)
+                Log.d(TAG, "Processing frame: ${bitmap.width}x${bitmap.height}")
+                
+                // Try simple detection first
+                var faces = contrastFaceDetector.detectFacesSimple(bitmap)
+                Log.d(TAG, "Simple detection found ${faces.size} faces")
+                
+                // If simple method doesn't find faces, try the advanced method
+                if (faces.isEmpty()) {
+                    faces = contrastFaceDetector.detectFaces(bitmap)
+                    Log.d(TAG, "Advanced detection found ${faces.size} faces")
+                }
+                
+                // Update overlay with detected faces for visualization
+                runOnUiThread {
+                    overlayView.updateFaceRegions(faces)
+                }
                 
                 if (faces.isNotEmpty()) {
+                    Log.d(TAG, "Processing face: ${faces[0]}")
                     processFace(faces[0], imageProxy)
+                } else {
+                    Log.d(TAG, "No faces detected in this frame")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error in face analysis", e)
@@ -203,7 +221,9 @@ class MainActivity : AppCompatActivity() {
         val buffer = planes[0].buffer
         val bytes = ByteArray(buffer.remaining())
         buffer.get(bytes)
-        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        Log.d(TAG, "Converted ImageProxy to bitmap: ${bitmap?.width}x${bitmap?.height}")
+        return bitmap ?: Bitmap.createBitmap(640, 480, Bitmap.Config.RGB_565)
     }
 
     private fun estimateGaze(leftEye: Bitmap, rightEye: Bitmap): Pair<Float, Float> {
