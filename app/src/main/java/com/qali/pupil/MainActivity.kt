@@ -1,6 +1,7 @@
 package com.qali.pupil
 
 import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
@@ -19,9 +20,24 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.Face
 import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetectorOptions
+import org.opencv.android.OpenCVLoaderCallback
+import org.opencv.android.OpenCVManagerService
+import org.opencv.android.Utils
+import org.opencv.android.BaseLoaderCallback
+import org.opencv.android.LoaderCallbackInterface
+import org.opencv.android.InstallCallbackInterface
+import org.opencv.core.CvType
+import org.opencv.core.Mat
+import org.opencv.core.MatOfPoint
+import org.opencv.core.Point
+import org.opencv.core.Scalar
+import org.opencv.core.Size as OpenCVSize
+import org.opencv.imgproc.Imgproc
 import org.tensorflow.lite.Interpreter
+import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.nio.MappedByteBuffer
 import java.nio.channels.FileChannel
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -31,6 +47,23 @@ class MainActivity : AppCompatActivity() {
     private lateinit var cameraExecutor: ExecutorService
     private lateinit var tflite: Interpreter
     private lateinit var overlayView: GazeOverlayView
+    private var isOpenCVLoaded = false
+    private var currentContours = mutableListOf<MatOfPoint>()
+    
+    // OpenCV loader callback
+    private val openCVLoaderCallback = object : BaseLoaderCallback(this) {
+        override fun onManagerConnected(status: Int) {
+            when (status) {
+                LoaderCallbackInterface.SUCCESS -> {
+                    Log.d(TAG, "OpenCV loaded successfully")
+                    isOpenCVLoaded = true
+                }
+                else -> {
+                    super.onManagerConnected(status)
+                }
+            }
+        }
+    }
     
     // Face detection components
     private val detector by lazy {
@@ -68,6 +101,13 @@ class MainActivity : AppCompatActivity() {
             startCamera()
         } else {
             requestPermissions(arrayOf(android.Manifest.permission.CAMERA), CAMERA_PERMISSION_CODE)
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (!OpenCVManagerService.connectAsync(this, openCVLoaderCallback)) {
+            Log.d(TAG, "OpenCV Manager not available. Install from Google Play Store.")
         }
     }
 
@@ -140,7 +180,20 @@ class MainActivity : AppCompatActivity() {
         val leftEyeBitmap = cropAndConvert(imageProxy, leftEyeRect)
         val rightEyeBitmap = cropAndConvert(imageProxy, rightEyeRect)
         
-        val gaze = estimateGaze(leftEyeBitmap, rightEyeBitmap)
+        // Apply contrast enhancement to eye images
+        val enhancedLeftEye = enhanceContrast(leftEyeBitmap)
+        val enhancedRightEye = enhanceContrast(rightEyeBitmap)
+        
+        // Find contours in the enhanced eye images
+        val leftEyeContours = findContours(enhancedLeftEye)
+        val rightEyeContours = findContours(enhancedRightEye)
+        
+        // Store contours for visualization
+        currentContours.clear()
+        currentContours.addAll(leftEyeContours)
+        currentContours.addAll(rightEyeContours)
+        
+        val gaze = estimateGaze(enhancedLeftEye, enhancedRightEye)
         gazeHistory.add(gaze)
         if (gazeHistory.size > GAZE_HISTORY_SIZE) gazeHistory.removeAt(0)
 
@@ -150,7 +203,7 @@ class MainActivity : AppCompatActivity() {
         )
 
         runOnUiThread {
-            overlayView.updateGazePoint(avgGaze.first, avgGaze.second)
+            overlayView.updateGazePoint(avgGaze.first, avgGaze.second, currentContours)
         }
     }
 
@@ -203,6 +256,70 @@ class MainActivity : AppCompatActivity() {
             buffer.putFloat(((pixel shr 8 and 0xFF) - 127.5f) / 127.5f)  // G
             buffer.putFloat(((pixel and 0xFF) - 127.5f) / 127.5f)         // B
         }
+    }
+
+    private fun enhanceContrast(bitmap: Bitmap): Bitmap {
+        if (!isOpenCVLoaded) return bitmap
+        
+        val mat = Mat()
+        Utils.bitmapToMat(bitmap, mat)
+        
+        // Convert to grayscale
+        val grayMat = Mat()
+        Imgproc.cvtColor(mat, grayMat, Imgproc.COLOR_BGR2GRAY)
+        
+        // Apply CLAHE (Contrast Limited Adaptive Histogram Equalization)
+        val clahe = Imgproc.createCLAHE(2.0, OpenCVSize(8.0, 8.0))
+        val enhancedMat = Mat()
+        clahe.apply(grayMat, enhancedMat)
+        
+        // Convert back to bitmap
+        val resultBitmap = Bitmap.createBitmap(bitmap.width, bitmap.height, bitmap.config)
+        Utils.matToBitmap(enhancedMat, resultBitmap)
+        
+        mat.release()
+        grayMat.release()
+        enhancedMat.release()
+        
+        return resultBitmap
+    }
+
+    private fun findContours(bitmap: Bitmap): List<MatOfPoint> {
+        if (!isOpenCVLoaded) return emptyList()
+        
+        val mat = Mat()
+        Utils.bitmapToMat(bitmap, mat)
+        
+        // Convert to grayscale
+        val grayMat = Mat()
+        Imgproc.cvtColor(mat, grayMat, Imgproc.COLOR_BGR2GRAY)
+        
+        // Apply Gaussian blur to reduce noise
+        val blurredMat = Mat()
+        Imgproc.GaussianBlur(grayMat, blurredMat, OpenCVSize(5.0, 5.0), 0.0)
+        
+        // Apply Canny edge detection
+        val edgesMat = Mat()
+        Imgproc.Canny(blurredMat, edgesMat, 50.0, 150.0)
+        
+        // Find contours
+        val contours = mutableListOf<MatOfPoint>()
+        val hierarchy = Mat()
+        Imgproc.findContours(edgesMat, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
+        
+        // Filter contours by area to remove noise
+        val filteredContours = contours.filter { contour ->
+            val area = Imgproc.contourArea(contour)
+            area > 100.0 // Minimum area threshold
+        }
+        
+        mat.release()
+        grayMat.release()
+        blurredMat.release()
+        edgesMat.release()
+        hierarchy.release()
+        
+        return filteredContours
     }
 
     private fun loadModelFile(modelName: String): MappedByteBuffer {
