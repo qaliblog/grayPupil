@@ -295,9 +295,9 @@ class MainActivity : AppCompatActivity() {
             
             bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
             
-            // Rotate to horizontal orientation
+            // Rotate 90 degrees counter-clockwise
             val matrix = Matrix().apply {
-                postRotate(90f) // Rotate 90 degrees to make it horizontal
+                postRotate(-90f) // Rotate 90 degrees counter-clockwise
             }
             
             val finalBitmap = Bitmap.createBitmap(bitmap, 0, 0, width, height, matrix, true)
@@ -340,18 +340,23 @@ class MainActivity : AppCompatActivity() {
         val grayMat = Mat()
         Imgproc.cvtColor(mat, grayMat, Imgproc.COLOR_BGR2GRAY)
         
-        // Apply very strong CLAHE for maximum contrast enhancement
-        val clahe = Imgproc.createCLAHE(8.0, OpenCVSize(8.0, 8.0))
+        // Apply maximum CLAHE for extreme contrast enhancement
+        val clahe = Imgproc.createCLAHE(15.0, OpenCVSize(8.0, 8.0))
         val enhancedMat = Mat()
         clahe.apply(grayMat, enhancedMat)
         
-        // Additional histogram equalization for even more contrast
+        // Additional histogram equalization for maximum contrast
         val equalizedMat = Mat()
         Imgproc.equalizeHist(enhancedMat, equalizedMat)
         
+        // Apply morphological operations to enhance edges
+        val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, OpenCVSize(3.0, 3.0))
+        val morphMat = Mat()
+        Imgproc.morphologyEx(equalizedMat, morphMat, Imgproc.MORPH_GRADIENT, kernel)
+        
         // Convert enhanced grayscale back to RGB for display
         val rgbMat = Mat()
-        Imgproc.cvtColor(equalizedMat, rgbMat, Imgproc.COLOR_GRAY2RGB)
+        Imgproc.cvtColor(morphMat, rgbMat, Imgproc.COLOR_GRAY2RGB)
         
         // Convert back to bitmap
         val resultBitmap = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
@@ -362,6 +367,8 @@ class MainActivity : AppCompatActivity() {
         grayMat.release()
         enhancedMat.release()
         equalizedMat.release()
+        morphMat.release()
+        kernel.release()
         
         Log.d(TAG, "Contrast enhanced successfully")
         return resultBitmap
@@ -380,8 +387,8 @@ class MainActivity : AppCompatActivity() {
         val grayMat = Mat()
         Imgproc.cvtColor(mat, grayMat, Imgproc.COLOR_BGR2GRAY)
         
-        // Apply very strong contrast enhancement for contour detection
-        val clahe = Imgproc.createCLAHE(10.0, OpenCVSize(8.0, 8.0))
+        // Apply maximum contrast enhancement for contour detection
+        val clahe = Imgproc.createCLAHE(20.0, OpenCVSize(8.0, 8.0))
         val enhancedMat = Mat()
         clahe.apply(grayMat, enhancedMat)
         
@@ -389,9 +396,14 @@ class MainActivity : AppCompatActivity() {
         val equalizedMat = Mat()
         Imgproc.equalizeHist(enhancedMat, equalizedMat)
         
+        // Apply morphological gradient to enhance edge contrast
+        val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, OpenCVSize(3.0, 3.0))
+        val morphMat = Mat()
+        Imgproc.morphologyEx(equalizedMat, morphMat, Imgproc.MORPH_GRADIENT, kernel)
+        
         // Apply stronger Gaussian blur to focus on larger features
         val blurredMat = Mat()
-        Imgproc.GaussianBlur(equalizedMat, blurredMat, OpenCVSize(7.0, 7.0), 0.0)
+        Imgproc.GaussianBlur(morphMat, blurredMat, OpenCVSize(7.0, 7.0), 0.0)
         
         // Apply Canny edge detection with adjusted thresholds for face detection
         val edgesMat = Mat()
@@ -420,6 +432,8 @@ class MainActivity : AppCompatActivity() {
         grayMat.release()
         enhancedMat.release()
         equalizedMat.release()
+        morphMat.release()
+        kernel.release()
         blurredMat.release()
         edgesMat.release()
         hierarchy.release()
