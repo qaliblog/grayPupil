@@ -331,6 +331,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun ImageProxy.toBitmap(): Bitmap {
         Log.d(TAG, "Converting ImageProxy format: ${format}, size: ${width}x${height}, planes: ${planes.size}")
+        Log.d(TAG, "Camera rotation degrees: ${imageInfo.rotationDegrees}")
         
         return try {
             // Convert YUV to bitmap with proper orientation
@@ -351,15 +352,18 @@ class MainActivity : AppCompatActivity() {
             }
             
             bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
+            Log.d(TAG, "Original bitmap: ${bitmap.width}x${bitmap.height}")
             
-            // Try -90 degrees (counter-clockwise) for portrait
+            // TEMPORARY: Test with NO rotation to see natural orientation
+            val rotationDegrees = imageInfo.rotationDegrees
             val matrix = Matrix().apply {
-                postRotate(-90f) // Rotate -90 degrees counter-clockwise
+                Log.d(TAG, "TESTING: No rotation applied to see natural camera orientation")
+                // Apply no rotation to see what we get naturally
             }
             
             val finalBitmap = Bitmap.createBitmap(bitmap, 0, 0, width, height, matrix, true)
             
-            Log.d(TAG, "Camera bitmap created: ${finalBitmap.width}x${finalBitmap.height}, rotation: ${imageInfo.rotationDegrees}")
+            Log.d(TAG, "Final bitmap: ${finalBitmap.width}x${finalBitmap.height}, camera rotation was: ${imageInfo.rotationDegrees}")
             finalBitmap
 
         } catch (e: Exception) {
