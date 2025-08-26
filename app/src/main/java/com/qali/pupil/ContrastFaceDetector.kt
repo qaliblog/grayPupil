@@ -16,23 +16,23 @@ class ContrastFaceDetector(private val context: Context) {
     companion object {
         private const val TAG = "ContrastFaceDetector"
         
-        // Standard Python OpenCV parameters
+        // Exact Python OpenCV standard parameters
         private const val SCALE_FACTOR = 1.1
         private const val MIN_NEIGHBORS = 4
-        private const val MIN_SIZE_FACTOR = 0.1  // Min face size as fraction of image
+        private const val MIN_SIZE_FACTOR = 0.1
     }
 
-    // OpenCV Mats (following Python variable naming)
+    // Python OpenCV variables (exact naming convention)
     private val gray = Mat()           // gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     private val faces = MatOfRect()    // faces = face_cascade.detectMultiScale(gray, 1.1, 4)
-    private var faceCascade: CascadeClassifier? = null  // face_cascade = cv2.CascadeClassifier(...)
+    private var face_cascade: CascadeClassifier? = null  // face_cascade = cv2.CascadeClassifier(...)
 
     init {
-        loadCascadeClassifier()
+        loadCascade()
     }
 
-    // Step 1: Load Haar cascade (Python: face_cascade = cv2.CascadeClassifier(...))
-    private fun loadCascadeClassifier() {
+    // Python: face_cascade = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
+    private fun loadCascade() {
         try {
             val inputStream: InputStream = context.assets.open("haarcascade_frontalface_alt.xml")
             val cascadeDir = context.getDir("cascade", Context.MODE_PRIVATE)
@@ -47,22 +47,36 @@ class ContrastFaceDetector(private val context: Context) {
             inputStream.close()
             outputStream.close()
             
-            faceCascade = CascadeClassifier(cascadeFile.absolutePath)
+            face_cascade = CascadeClassifier(cascadeFile.absolutePath)
             
-            if (faceCascade?.empty() == true) {
+            if (face_cascade?.empty() == true) {
                 Log.e(TAG, "Failed to load cascade classifier")
-                faceCascade = null
+                face_cascade = null
             } else {
-                Log.d(TAG, "Cascade classifier loaded successfully")
+                Log.d(TAG, "Haar cascade loaded successfully")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error loading cascade", e)
-            faceCascade = null
+            face_cascade = null
         }
     }
 
-    // Main detection method following exact Python OpenCV flow
+    // EXACT Python OpenCV face detection function
     fun detectFaces(bitmap: Bitmap): List<RectF> {
+        /*
+        Python equivalent:
+        import cv2
+        
+        def detect_faces(img):
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            faces = face_cascade.detectMultiScale(gray, 1.1, 4)
+            
+            face_list = []
+            for (x, y, w, h) in faces:
+                face_list.append((x, y, x+w, y+h))
+            return face_list
+        */
+        
         try {
             // Python: img = cv2.imread('image.jpg')
             val img = Mat(bitmap.height, bitmap.width, CvType.CV_8UC3)
@@ -71,35 +85,14 @@ class ContrastFaceDetector(private val context: Context) {
             // Python: gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
             Imgproc.cvtColor(img, gray, Imgproc.COLOR_RGB2GRAY)
             
-            // Optional: Apply histogram equalization for better contrast (common Python enhancement)
-            // Python: gray = cv2.equalizeHist(gray)
-            Imgproc.equalizeHist(gray, gray)
-            
             // Python: faces = face_cascade.detectMultiScale(gray, 1.1, 4)
-            val detectedFaces = detectMultiScale()
+            val classifier = face_cascade
+            if (classifier == null) {
+                Log.e(TAG, "Haar cascade not loaded")
+                return emptyList()
+            }
             
-            // Python: for (x, y, w, h) in faces: ...
-            val faceRectangles = convertToRectF(detectedFaces)
-            
-            Log.d(TAG, "Detected ${faceRectangles.size} faces using Python OpenCV pattern")
-            return faceRectangles
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in face detection", e)
-            return emptyList()
-        }
-    }
-    
-    // Python: faces = face_cascade.detectMultiScale(gray, 1.1, 4)
-    private fun detectMultiScale(): Array<Rect> {
-        val classifier = faceCascade
-        if (classifier == null) {
-            Log.w(TAG, "Cascade classifier not loaded, using fallback detection")
-            return detectWithContrastFallback()
-        }
-        
-        try {
-            // Calculate minimum face size (Python common practice)
+            // Calculate minimum face size (standard Python practice)
             val minSize = Size(
                 (gray.cols() * MIN_SIZE_FACTOR).toDouble(),
                 (gray.rows() * MIN_SIZE_FACTOR).toDouble()
@@ -107,122 +100,83 @@ class ContrastFaceDetector(private val context: Context) {
             
             // Python: face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4)
             classifier.detectMultiScale(
-                gray,                    // Input image
-                faces,                   // Output rectangles
-                SCALE_FACTOR,           // Scale factor (1.1)
-                MIN_NEIGHBORS,          // Min neighbors (4)
-                0,                      // Flags
-                minSize,                // Minimum size
-                Size()                  // Maximum size (empty = no limit)
+                gray,               // input image
+                faces,              // output detections
+                SCALE_FACTOR,       // 1.1
+                MIN_NEIGHBORS,      // 4
+                0,                  // flags (0 = default)
+                minSize,            // minimum size
+                Size()              // maximum size (empty = no limit)
             )
             
+            // Python: for (x, y, w, h) in faces:
             val detectedFaces = faces.toArray()
-            Log.d(TAG, "Haar cascade detected ${detectedFaces.size} faces")
+            val faceList = mutableListOf<RectF>()
             
-            return detectedFaces
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in detectMultiScale", e)
-            return emptyArray()
-        }
-    }
-    
-    // Fallback method using contrast when Haar cascade is not available
-    private fun detectWithContrastFallback(): Array<Rect> {
-        try {
-            Log.d(TAG, "Using contrast-based fallback detection")
-            
-            // Apply additional contrast enhancement
-            val enhanced = Mat()
-            gray.convertTo(enhanced, CvType.CV_8UC1, 1.2, 10.0)
-            
-            // Find edges using Canny
-            val edges = Mat()
-            Imgproc.Canny(enhanced, edges, 50.0, 150.0)
-            
-            // Find contours
-            val contours = mutableListOf<MatOfPoint>()
-            val hierarchy = Mat()
-            Imgproc.findContours(edges, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
-            
-            val faceRects = mutableListOf<Rect>()
-            
-            for (contour in contours) {
-                val boundingRect = Imgproc.boundingRect(contour)
-                val area = Imgproc.contourArea(contour)
+            for (face in detectedFaces) {
+                // Python: (x, y, w, h) -> convert to rectangle
+                val rectF = RectF(
+                    face.x.toFloat(),                    // x
+                    face.y.toFloat(),                    // y  
+                    (face.x + face.width).toFloat(),     // x + w
+                    (face.y + face.height).toFloat()     // y + h
+                )
+                faceList.add(rectF)
                 
-                // Filter for face-like regions
-                if (boundingRect.width >= 60 && boundingRect.height >= 60 &&
-                    boundingRect.width <= 300 && boundingRect.height <= 300 &&
-                    area > 2000) {
-                    
-                    val aspectRatio = boundingRect.width.toDouble() / boundingRect.height.toDouble()
-                    if (aspectRatio > 0.6 && aspectRatio < 1.4) {
-                        faceRects.add(boundingRect)
-                    }
-                }
+                Log.d(TAG, "Detected face: x=${face.x}, y=${face.y}, w=${face.width}, h=${face.height}")
             }
             
-            // Cleanup
-            enhanced.release()
-            edges.release()
-            hierarchy.release()
-            
-            Log.d(TAG, "Contrast fallback found ${faceRects.size} face candidates")
-            return faceRects.toTypedArray()
+            Log.d(TAG, "Total faces detected: ${faceList.size}")
+            return faceList
             
         } catch (e: Exception) {
-            Log.e(TAG, "Error in contrast fallback", e)
-            return emptyArray()
+            Log.e(TAG, "Error in face detection", e)
+            return emptyList()
         }
     }
     
-    // Python: for (x, y, w, h) in faces: cv2.rectangle(img, (x, y), (x+w, y+h), (255, 0, 0), 2)
-    private fun convertToRectF(detectedFaces: Array<Rect>): List<RectF> {
-        val rectangles = mutableListOf<RectF>()
-        
-        for (face in detectedFaces) {
-            // Convert OpenCV Rect to Android RectF
-            // Python: (x, y, w, h) -> Android: (left, top, right, bottom)
-            val rectF = RectF(
-                face.x.toFloat(),                    // x -> left
-                face.y.toFloat(),                    // y -> top  
-                (face.x + face.width).toFloat(),     // x + w -> right
-                (face.y + face.height).toFloat()     // y + h -> bottom
-            )
-            rectangles.add(rectF)
-            
-            Log.d(TAG, "Face rectangle: x=${face.x}, y=${face.y}, w=${face.width}, h=${face.height}")
-        }
-        
-        return rectangles
-    }
-    
-    // Standard eye region estimation (common in Python OpenCV tutorials)
+    // Standard eye detection (common in Python OpenCV examples)
     fun getEyeRegions(faceRect: RectF): Pair<RectF, RectF>? {
+        /*
+        Python equivalent:
+        def get_eye_regions(face_rect):
+            x, y, w, h = face_rect
+            eye_w = int(w * 0.15)
+            eye_h = int(h * 0.15)
+            
+            left_eye_x = x + int(w * 0.3)
+            right_eye_x = x + int(w * 0.7)
+            eye_y = y + int(h * 0.35)
+            
+            left_eye = (left_eye_x - eye_w//2, eye_y - eye_h//2, left_eye_x + eye_w//2, eye_y + eye_h//2)
+            right_eye = (right_eye_x - eye_w//2, eye_y - eye_h//2, right_eye_x + eye_w//2, eye_y + eye_h//2)
+            
+            return left_eye, right_eye
+        */
+        
         try {
-            val faceWidth = faceRect.right - faceRect.left
-            val faceHeight = faceRect.bottom - faceRect.top
+            val w = faceRect.right - faceRect.left
+            val h = faceRect.bottom - faceRect.top
             
-            // Standard proportions from Python OpenCV examples
-            val eyeY = faceRect.top + faceHeight * 0.35f
-            val eyeSize = faceWidth * 0.15f
+            val eye_w = w * 0.15f
+            val eye_h = h * 0.15f
             
-            val leftEyeX = faceRect.left + faceWidth * 0.3f
-            val rightEyeX = faceRect.left + faceWidth * 0.7f
+            val left_eye_x = faceRect.left + w * 0.3f
+            val right_eye_x = faceRect.left + w * 0.7f
+            val eye_y = faceRect.top + h * 0.35f
             
             val leftEyeRect = RectF(
-                leftEyeX - eyeSize/2,
-                eyeY - eyeSize/2,
-                leftEyeX + eyeSize/2,
-                eyeY + eyeSize/2
+                left_eye_x - eye_w/2,
+                eye_y - eye_h/2,
+                left_eye_x + eye_w/2,
+                eye_y + eye_h/2
             )
             
             val rightEyeRect = RectF(
-                rightEyeX - eyeSize/2,
-                eyeY - eyeSize/2,
-                rightEyeX + eyeSize/2,
-                eyeY + eyeSize/2
+                right_eye_x - eye_w/2,
+                eye_y - eye_h/2,
+                right_eye_x + eye_w/2,
+                eye_y + eye_h/2
             )
             
             return Pair(leftEyeRect, rightEyeRect)
