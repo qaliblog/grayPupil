@@ -6,6 +6,7 @@ import android.graphics.Canvas
 import android.graphics.Matrix
 import android.util.AttributeSet
 import android.util.Log
+import android.view.View
 import android.widget.ImageView
 import androidx.appcompat.widget.AppCompatImageView
 
@@ -24,10 +25,15 @@ class ProcessedFrameView @JvmOverloads constructor(
             Log.d(TAG, "Updating frame: ${bitmap.width}x${bitmap.height}")
             
             post {
-                setImageBitmap(bitmap)
-                scaleType = ImageView.ScaleType.CENTER_CROP
-                invalidate()
-                Log.d(TAG, "Frame set to ImageView")
+                try {
+                    setImageBitmap(bitmap)
+                    scaleType = ImageView.ScaleType.CENTER_CROP
+                    visibility = View.VISIBLE
+                    invalidate()
+                    Log.d(TAG, "Frame set to ImageView successfully")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error setting bitmap: ${e.message}")
+                }
             }
         } else {
             Log.w(TAG, "Received null bitmap")

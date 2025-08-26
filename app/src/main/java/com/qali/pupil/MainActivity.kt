@@ -85,6 +85,23 @@ class MainActivity : AppCompatActivity() {
         
         Log.d(TAG, "ProcessedFrameView added to layout")
         
+        // Create a simple test bitmap to verify display
+        val testBitmap = Bitmap.createBitmap(400, 300, Bitmap.Config.ARGB_8888)
+        testBitmap.eraseColor(Color.GREEN)
+        val canvas = Canvas(testBitmap)
+        val paint = Paint().apply {
+            color = Color.BLACK
+            textSize = 40f
+        }
+        canvas.drawText("Display Working", 50f, 150f, paint)
+        processedFrameView.updateFrame(testBitmap)
+        Log.d(TAG, "Green test bitmap displayed")
+        
+        // Remove test bitmap after 3 seconds
+        processedFrameView.postDelayed({
+            Log.d(TAG, "Removing test bitmap")
+        }, 3000)
+        
         cameraExecutor = Executors.newSingleThreadExecutor()
 
         if (allPermissionsGranted()) {
@@ -141,10 +158,20 @@ class MainActivity : AppCompatActivity() {
     private inner class ContourAnalyzer : ImageAnalysis.Analyzer {
         override fun analyze(imageProxy: ImageProxy) {
             try {
+                Log.d(TAG, "Analyzing frame: ${imageProxy.width}x${imageProxy.height}")
+                
                 // Convert imageProxy to bitmap
                 val bitmap = imageProxy.toBitmap()
                 Log.d(TAG, "Original bitmap: ${bitmap.width}x${bitmap.height}")
                 
+                // For now, just show the original frame to test conversion
+                runOnUiThread {
+                    processedFrameView.updateFrame(bitmap)
+                    Log.d(TAG, "Frame sent to display")
+                }
+                
+                /*
+                // TODO: Re-enable processing once basic display works
                 if (!isOpenCVLoaded) {
                     Log.w(TAG, "OpenCV not loaded, showing original frame")
                     runOnUiThread {
@@ -168,17 +195,21 @@ class MainActivity : AppCompatActivity() {
                 }
                 
                 Log.d(TAG, "Processed frame with contrast enhancement and contours")
+                */
                 
             } catch (e: Exception) {
                 Log.e(TAG, "Error processing frame: ${e.message}", e)
-                // Fallback: try to show original frame
-                try {
-                    val bitmap = imageProxy.toBitmap()
-                    runOnUiThread {
-                        processedFrameView.updateFrame(bitmap)
-                    }
-                } catch (fallbackError: Exception) {
-                    Log.e(TAG, "Fallback also failed: ${fallbackError.message}")
+                // Create a simple error bitmap
+                val errorBitmap = Bitmap.createBitmap(400, 300, Bitmap.Config.ARGB_8888)
+                errorBitmap.eraseColor(Color.YELLOW)
+                val canvas = Canvas(errorBitmap)
+                val paint = Paint().apply {
+                    color = Color.RED
+                    textSize = 30f
+                }
+                canvas.drawText("Error: ${e.message}", 20f, 150f, paint)
+                runOnUiThread {
+                    processedFrameView.updateFrame(errorBitmap)
                 }
             } finally {
                 imageProxy.close()
