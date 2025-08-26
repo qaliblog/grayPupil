@@ -56,7 +56,8 @@ dependencies {
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
 
     // OpenCV for contrast detection
-    implementation("com.quickbirdstudios:opencv:4.5.3.0")
+    // https://mvnrepository.com/artifact/org.opencv/opencv
+    implementation("org.opencv:opencv:4.12.0")
     
 
 
