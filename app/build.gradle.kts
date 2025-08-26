@@ -55,7 +55,8 @@ dependencies {
     implementation("com.google.android.material:material:1.11.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
 
-
+    // OpenCV for contrast detection
+    implementation("com.quickbirdstudios:opencv:4.5.3.0")
     
     // Machine Learning
     implementation("org.tensorflow:tensorflow-lite:2.14.0")

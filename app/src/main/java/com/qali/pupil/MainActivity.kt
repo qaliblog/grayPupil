@@ -1,10 +1,11 @@
 package com.qali.pupil
 
-import android.content.Context
+
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
+import android.graphics.Rect
 import android.graphics.RectF
 import android.os.Bundle
 import android.util.Log
@@ -20,7 +21,14 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.Face
 import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetectorOptions
-
+import org.opencv.android.BaseLoaderCallback
+import org.opencv.android.LoaderCallbackInterface
+import org.opencv.android.OpenCVLoader
+import org.opencv.android.Utils
+import org.opencv.core.Mat
+import org.opencv.core.MatOfPoint
+import org.opencv.core.Size as OpenCVSize
+import org.opencv.imgproc.Imgproc
 import org.tensorflow.lite.Interpreter
 import java.io.FileInputStream
 import java.nio.ByteBuffer
@@ -35,7 +43,23 @@ class MainActivity : AppCompatActivity() {
     private lateinit var cameraExecutor: ExecutorService
     private lateinit var tflite: Interpreter
     private lateinit var overlayView: GazeOverlayView
+    private var isOpenCVLoaded = false
+    private var faceContours = mutableListOf<MatOfPoint>()
 
+    // OpenCV loader callback
+    private val openCVLoaderCallback = object : BaseLoaderCallback(this) {
+        override fun onManagerConnected(status: Int) {
+            when (status) {
+                LoaderCallbackInterface.SUCCESS -> {
+                    Log.d(TAG, "OpenCV loaded successfully")
+                    isOpenCVLoaded = true
+                }
+                else -> {
+                    super.onManagerConnected(status)
+                }
+            }
+        }
+    }
     
     // Face detection components
     private val detector by lazy {
@@ -54,8 +78,8 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "EyeTracking"
         private const val CAMERA_PERMISSION_CODE = 101
-        private const val LEFT_EYE = 1
-        private const val RIGHT_EYE = 2
+        private const val LEFT_EYE = 2  // FaceLandmark.LEFT_EYE
+        private const val RIGHT_EYE = 7 // FaceLandmark.RIGHT_EYE
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -76,7 +100,16 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-
+    override fun onResume() {
+        super.onResume()
+        if (!OpenCVLoader.initDebug()) {
+            Log.d(TAG, "Internal OpenCV library not found. Using OpenCV Manager for initialization")
+            OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION, this, openCVLoaderCallback)
+        } else {
+            Log.d(TAG, "OpenCV library found inside package. Using it!")
+            openCVLoaderCallback.onManagerConnected(LoaderCallbackInterface.SUCCESS)
+        }
+    }
 
     private fun allPermissionsGranted() = 
         ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
@@ -147,6 +180,17 @@ class MainActivity : AppCompatActivity() {
         val leftEyeBitmap = cropAndConvert(imageProxy, leftEyeRect)
         val rightEyeBitmap = cropAndConvert(imageProxy, rightEyeRect)
         
+        // Get the full face area for contour detection
+        val faceBitmap = cropAndConvert(imageProxy, face.boundingBox)
+        
+        // Apply contrast enhancement and detect face contours
+        val enhancedFace = enhanceContrast(faceBitmap)
+        val detectedContours = detectFaceContours(enhancedFace)
+        
+        // Store contours for visualization
+        faceContours.clear()
+        faceContours.addAll(detectedContours)
+        
         val gaze = estimateGaze(leftEyeBitmap, rightEyeBitmap)
         gazeHistory.add(gaze)
         if (gazeHistory.size > GAZE_HISTORY_SIZE) gazeHistory.removeAt(0)
@@ -157,8 +201,29 @@ class MainActivity : AppCompatActivity() {
         )
 
         runOnUiThread {
-            overlayView.updateGazePoint(avgGaze.first, avgGaze.second)
+            overlayView.updateGazeAndContours(avgGaze.first, avgGaze.second, faceContours, face.boundingBox)
         }
+    }
+
+    private fun cropAndConvert(imageProxy: ImageProxy, rect: Rect): Bitmap {
+        val matrix = Matrix().apply {
+            postRotate(-imageProxy.imageInfo.rotationDegrees.toFloat())
+            postScale(1f, -1f)
+        }
+        
+        val bitmap = imageProxy.toBitmap()
+        return Bitmap.createScaledBitmap(
+            Bitmap.createBitmap(bitmap, 
+                rect.left, 
+                rect.top,
+                rect.width(),
+                rect.height(),
+                matrix,
+                true),
+            INPUT_SIZE,
+            INPUT_SIZE,
+            true
+        )
     }
 
     private fun cropAndConvert(imageProxy: ImageProxy, rect: RectF): Bitmap {
@@ -212,7 +277,75 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun enhanceContrast(bitmap: Bitmap): Bitmap {
+        if (!isOpenCVLoaded) return bitmap
+        
+        val mat = Mat()
+        Utils.bitmapToMat(bitmap, mat)
+        
+        // Convert to grayscale for contrast enhancement
+        val grayMat = Mat()
+        Imgproc.cvtColor(mat, grayMat, Imgproc.COLOR_BGR2GRAY)
+        
+        // Apply CLAHE (Contrast Limited Adaptive Histogram Equalization)
+        val clahe = Imgproc.createCLAHE(3.0, OpenCVSize(8.0, 8.0))
+        val enhancedMat = Mat()
+        clahe.apply(grayMat, enhancedMat)
+        
+        // Convert back to bitmap
+        val resultBitmap = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
+        Utils.matToBitmap(enhancedMat, resultBitmap)
+        
+        mat.release()
+        grayMat.release()
+        enhancedMat.release()
+        
+        return resultBitmap
+    }
 
+    private fun detectFaceContours(bitmap: Bitmap): List<MatOfPoint> {
+        if (!isOpenCVLoaded) return emptyList()
+        
+        val mat = Mat()
+        Utils.bitmapToMat(bitmap, mat)
+        
+        // Convert to grayscale
+        val grayMat = Mat()
+        Imgproc.cvtColor(mat, grayMat, Imgproc.COLOR_BGR2GRAY)
+        
+        // Apply contrast enhancement
+        val clahe = Imgproc.createCLAHE(2.0, OpenCVSize(8.0, 8.0))
+        val enhancedMat = Mat()
+        clahe.apply(grayMat, enhancedMat)
+        
+        // Apply Gaussian blur to reduce noise
+        val blurredMat = Mat()
+        Imgproc.GaussianBlur(enhancedMat, blurredMat, OpenCVSize(5.0, 5.0), 0.0)
+        
+        // Apply Canny edge detection
+        val edgesMat = Mat()
+        Imgproc.Canny(blurredMat, edgesMat, 50.0, 150.0)
+        
+        // Find contours
+        val contours = mutableListOf<MatOfPoint>()
+        val hierarchy = Mat()
+        Imgproc.findContours(edgesMat, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
+        
+        // Filter contours by area - focus on larger face contours
+        val filteredContours = contours.filter { contour ->
+            val area = Imgproc.contourArea(contour)
+            area > 500.0 // Minimum area for face features
+        }
+        
+        mat.release()
+        grayMat.release()
+        enhancedMat.release()
+        blurredMat.release()
+        edgesMat.release()
+        hierarchy.release()
+        
+        return filteredContours
+    }
 
     private fun loadModelFile(modelName: String): MappedByteBuffer {
         val fileDescriptor = assets.openFd(modelName)
