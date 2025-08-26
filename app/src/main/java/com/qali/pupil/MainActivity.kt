@@ -14,6 +14,7 @@ import android.graphics.YuvImage
 import android.os.Bundle
 import android.util.Log
 import android.util.Size
+import android.view.Surface
 import android.view.View
 import android.widget.SeekBar
 import android.widget.TextView
@@ -217,9 +218,10 @@ class MainActivity : AppCompatActivity() {
                 Log.d(TAG, "Using front camera...")
                 val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
                 
-                // Create image analysis with portrait resolution
+                // Force portrait mode with target rotation
                 val imageAnalysis = ImageAnalysis.Builder()
                     .setTargetResolution(Size(480, 640)) // Portrait: height > width
+                    .setTargetRotation(Surface.ROTATION_0) // Force portrait rotation
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                     .build()
                     .also {
@@ -344,32 +346,33 @@ class MainActivity : AppCompatActivity() {
             Log.d(TAG, "YUV details - PixelStride: $yPixelStride, RowStride: $yRowStride, BufferSize: $ySize")
             Log.d(TAG, "Image dimensions: ${width}x${height}")
             
-            // CREATE BITMAP IN PORTRAIT ORIENTATION BY SWAPPING DIMENSIONS
-            Log.d(TAG, "SWAPPING DIMENSIONS: Original ${width}x${height} -> Portrait ${height}x${width}")
-            
-            val portraitPixels = IntArray(width * height)
+            // Simple YUV conversion + MASSIVE rotation test
+            val pixels = IntArray(width * height)
             var index = 0
             
-            // Read pixels and arrange them in portrait orientation
-            for (col in 0 until width) {  // Swap: iterate columns first
-                for (row in 0 until height) {  // Then rows
+            for (row in 0 until height) {
+                for (col in 0 until width) {
                     val bufferIndex = row * yRowStride + col * yPixelStride
                     if (bufferIndex < ySize) {
                         val y = yBuffer.get(bufferIndex).toInt() and 0xFF
-                        portraitPixels[index] = (0xFF shl 24) or (y shl 16) or (y shl 8) or y
+                        pixels[index] = (0xFF shl 24) or (y shl 16) or (y shl 8) or y
                     } else {
-                        portraitPixels[index] = 0xFF000000.toInt() // Black for out of bounds
+                        pixels[index] = 0xFF000000.toInt()
                     }
                     index++
                 }
             }
             
-            // Create bitmap with SWAPPED dimensions (portrait)
-            val finalBitmap = Bitmap.createBitmap(height, width, Bitmap.Config.ARGB_8888)
-            finalBitmap.setPixels(portraitPixels, 0, height, 0, 0, height, width)
-            Log.d(TAG, "PORTRAIT bitmap created: ${finalBitmap.width}x${finalBitmap.height}")
+            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
             
-            // NO ROTATION NEEDED - already in portrait!
+            // EXTREME rotation test - try 180 degrees!
+            val matrix = Matrix().apply {
+                Log.d(TAG, "TRYING 180° ROTATION - FLIP UPSIDE DOWN")
+                postRotate(180f) // Maybe we need to flip it completely?
+            }
+            
+            val finalBitmap = Bitmap.createBitmap(bitmap, 0, 0, width, height, matrix, true)
             
             Log.d(TAG, "Final bitmap: ${finalBitmap.width}x${finalBitmap.height}")
             finalBitmap
