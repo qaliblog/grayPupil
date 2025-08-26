@@ -290,51 +290,64 @@ class MainActivity : AppCompatActivity() {
 
 
     private fun ImageProxy.toBitmap(): Bitmap {
+        Log.d(TAG, "Converting ImageProxy format: ${format}, size: ${width}x${height}, planes: ${planes.size}")
+        
         return try {
-            // Try YUV conversion first
-            val yBuffer = planes[0].buffer // Y
-            val vuBuffer = planes[2].buffer // VU
+            // Simple and robust YUV to RGB conversion
+            val yBuffer = planes[0].buffer
+            val uBuffer = planes[1].buffer
+            val vBuffer = planes[2].buffer
 
             val ySize = yBuffer.remaining()
-            val vuSize = vuBuffer.remaining()
+            val uSize = uBuffer.remaining()
+            val vSize = vBuffer.remaining()
 
-            val nv21 = ByteArray(ySize + vuSize)
+            Log.d(TAG, "Buffer sizes - Y: $ySize, U: $uSize, V: $vSize")
 
-            yBuffer.get(nv21, 0, ySize)
-            vuBuffer.get(nv21, ySize, vuSize)
+            val yPixelStride = planes[0].pixelStride
+            val uvPixelStride = planes[1].pixelStride
+            val uvRowStride = planes[1].rowStride
 
-            val yuvImage = YuvImage(nv21, ImageFormat.NV21, this.width, this.height, null)
-            val out = ByteArrayOutputStream()
-            yuvImage.compressToJpeg(Rect(0, 0, this.width, this.height), 70, out)
-            val imageBytes = out.toByteArray()
-            val bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
-            
-            Log.d(TAG, "YUV converted ImageProxy to bitmap: ${bitmap?.width}x${bitmap?.height}")
-            bitmap ?: throw IllegalStateException("YUV conversion returned null")
+            Log.d(TAG, "Strides - Y pixel: $yPixelStride, UV pixel: $uvPixelStride, UV row: $uvRowStride")
+
+            // Create RGB bitmap directly
+            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            val pixels = IntArray(width * height)
+
+            // Simple YUV to RGB conversion for testing
+            val yArray = ByteArray(ySize)
+            yBuffer.get(yArray)
+
+            for (i in 0 until width * height) {
+                val y = yArray[i].toInt() and 0xFF
+                // For now, just use Y channel (grayscale) to test conversion
+                val gray = (y - 16) * 255 / 219
+                val clampedGray = gray.coerceIn(0, 255)
+                pixels[i] = (0xFF shl 24) or (clampedGray shl 16) or (clampedGray shl 8) or clampedGray
+            }
+
+            bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
+            Log.d(TAG, "Grayscale conversion successful: ${bitmap.width}x${bitmap.height}")
+            bitmap
+
         } catch (e: Exception) {
-            Log.w(TAG, "YUV conversion failed, trying simple conversion: ${e.message}")
-            
-            // Fallback: simple conversion (may not work for all formats)
-            val buffer = planes[0].buffer
-            val bytes = ByteArray(buffer.remaining())
-            buffer.get(bytes)
-            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-            
-            Log.d(TAG, "Simple converted ImageProxy to bitmap: ${bitmap?.width}x${bitmap?.height}")
-            bitmap ?: createDummyBitmap()
+            Log.e(TAG, "All conversion methods failed: ${e.message}", e)
+            createTestPattern()
         }
     }
     
-    private fun createDummyBitmap(): Bitmap {
+    private fun createTestPattern(): Bitmap {
         val bitmap = Bitmap.createBitmap(640, 480, Bitmap.Config.ARGB_8888)
-        bitmap.eraseColor(Color.BLUE)
+        bitmap.eraseColor(Color.MAGENTA)
         val canvas = Canvas(bitmap)
         val paint = Paint().apply {
             color = Color.WHITE
-            textSize = 50f
+            textSize = 30f
         }
-        canvas.drawText("Camera Feed", 50f, 240f, paint)
-        Log.d(TAG, "Created dummy bitmap")
+        canvas.drawText("Camera Format", 50f, 200f, paint)
+        canvas.drawText("Conversion Failed", 50f, 250f, paint)
+        canvas.drawText("Check Logs", 50f, 300f, paint)
+        Log.d(TAG, "Created test pattern bitmap")
         return bitmap
     }
 
