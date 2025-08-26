@@ -295,17 +295,22 @@ class MainActivity : AppCompatActivity() {
             
             bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
             
-            // Rotate bitmap to fix orientation
+            // Apply camera rotation if needed
             val matrix = Matrix().apply {
-                postRotate(90f) // Rotate 90 degrees for portrait
+                // Don't add extra 90 degree rotation - use only camera's natural rotation
                 if (imageInfo.rotationDegrees != 0) {
-                    postRotate(imageInfo.rotationDegrees.toFloat())
+                    postRotate(-imageInfo.rotationDegrees.toFloat()) // Negative to counteract
                 }
             }
             
-            val rotatedBitmap = Bitmap.createBitmap(bitmap, 0, 0, width, height, matrix, true)
-            Log.d(TAG, "Camera bitmap created: ${rotatedBitmap.width}x${rotatedBitmap.height}")
-            rotatedBitmap
+            val finalBitmap = if (imageInfo.rotationDegrees != 0) {
+                Bitmap.createBitmap(bitmap, 0, 0, width, height, matrix, true)
+            } else {
+                bitmap
+            }
+            
+            Log.d(TAG, "Camera bitmap created: ${finalBitmap.width}x${finalBitmap.height}, rotation: ${imageInfo.rotationDegrees}")
+            finalBitmap
 
         } catch (e: Exception) {
             Log.e(TAG, "Camera conversion failed: ${e.message}", e)
@@ -382,24 +387,30 @@ class MainActivity : AppCompatActivity() {
         val enhancedMat = Mat()
         clahe.apply(grayMat, enhancedMat)
         
-        // Apply Gaussian blur to reduce noise
+        // Apply stronger Gaussian blur to focus on larger features
         val blurredMat = Mat()
-        Imgproc.GaussianBlur(enhancedMat, blurredMat, OpenCVSize(3.0, 3.0), 0.0)
+        Imgproc.GaussianBlur(enhancedMat, blurredMat, OpenCVSize(7.0, 7.0), 0.0)
         
-        // Apply Canny edge detection
+        // Apply Canny edge detection with higher thresholds for larger contours
         val edgesMat = Mat()
-        Imgproc.Canny(blurredMat, edgesMat, 30.0, 100.0)
+        Imgproc.Canny(blurredMat, edgesMat, 80.0, 200.0)
         
         // Find contours
         val contours = mutableListOf<MatOfPoint>()
         val hierarchy = Mat()
         Imgproc.findContours(edgesMat, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
         
-        // Filter contours by area
+        // Filter contours by area - only large face-sized contours
+        val imageArea = mat.width() * mat.height()
+        val minFaceArea = imageArea * 0.05  // At least 5% of image
+        val maxFaceArea = imageArea * 0.7   // At most 70% of image
+        
         val filteredContours = contours.filter { contour ->
             val area = Imgproc.contourArea(contour)
-            area > 20.0
+            area >= minFaceArea && area <= maxFaceArea
         }
+        
+        Log.d(TAG, "Image area: $imageArea, Face area range: $minFaceArea - $maxFaceArea")
         
         Log.d(TAG, "Found ${contours.size} total contours, ${filteredContours.size} after filtering")
         
@@ -430,14 +441,14 @@ class MainActivity : AppCompatActivity() {
             isAntiAlias = true
         }
         
-        // Draw green squares at contour points
+        // Draw green squares at contour points - larger squares, less frequent for face contours
         for (contour in contours) {
             val points = contour.toArray()
             if (points.isNotEmpty()) {
-                val step = maxOf(1, points.size / 10) // Sample points
+                val step = maxOf(1, points.size / 20) // Less frequent sampling for cleaner look
                 for (i in points.indices step step) {
                     val point = points[i]
-                    val squareSize = 16f
+                    val squareSize = 24f // Larger squares for face-sized contours
                     
                     canvas.drawRect(
                         point.x.toFloat() - squareSize / 2,
