@@ -6,9 +6,11 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.ImageFormat
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Rect
+import android.graphics.YuvImage
 import android.os.Bundle
 import android.util.Log
 import android.util.Size
@@ -29,7 +31,7 @@ import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
 import org.opencv.core.Size as OpenCVSize
 import org.opencv.imgproc.Imgproc
-
+import java.io.ByteArrayOutputStream
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -82,12 +84,6 @@ class MainActivity : AppCompatActivity() {
         previewView.visibility = View.GONE
         
         Log.d(TAG, "ProcessedFrameView added to layout")
-        
-        // Test the display with a solid color bitmap
-        val testBitmap = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888)
-        testBitmap.eraseColor(Color.RED)
-        processedFrameView.updateFrame(testBitmap)
-        Log.d(TAG, "Test red bitmap displayed")
         
         cameraExecutor = Executors.newSingleThreadExecutor()
 
@@ -235,12 +231,52 @@ class MainActivity : AppCompatActivity() {
 
 
     private fun ImageProxy.toBitmap(): Bitmap {
-        val buffer = planes[0].buffer
-        val bytes = ByteArray(buffer.remaining())
-        buffer.get(bytes)
-        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-        Log.d(TAG, "Converted ImageProxy to bitmap: ${bitmap?.width}x${bitmap?.height}")
-        return bitmap ?: throw IllegalStateException("Failed to convert ImageProxy to Bitmap")
+        return try {
+            // Try YUV conversion first
+            val yBuffer = planes[0].buffer // Y
+            val vuBuffer = planes[2].buffer // VU
+
+            val ySize = yBuffer.remaining()
+            val vuSize = vuBuffer.remaining()
+
+            val nv21 = ByteArray(ySize + vuSize)
+
+            yBuffer.get(nv21, 0, ySize)
+            vuBuffer.get(nv21, ySize, vuSize)
+
+            val yuvImage = YuvImage(nv21, ImageFormat.NV21, this.width, this.height, null)
+            val out = ByteArrayOutputStream()
+            yuvImage.compressToJpeg(Rect(0, 0, this.width, this.height), 70, out)
+            val imageBytes = out.toByteArray()
+            val bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+            
+            Log.d(TAG, "YUV converted ImageProxy to bitmap: ${bitmap?.width}x${bitmap?.height}")
+            bitmap ?: throw IllegalStateException("YUV conversion returned null")
+        } catch (e: Exception) {
+            Log.w(TAG, "YUV conversion failed, trying simple conversion: ${e.message}")
+            
+            // Fallback: simple conversion (may not work for all formats)
+            val buffer = planes[0].buffer
+            val bytes = ByteArray(buffer.remaining())
+            buffer.get(bytes)
+            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            
+            Log.d(TAG, "Simple converted ImageProxy to bitmap: ${bitmap?.width}x${bitmap?.height}")
+            bitmap ?: createDummyBitmap()
+        }
+    }
+    
+    private fun createDummyBitmap(): Bitmap {
+        val bitmap = Bitmap.createBitmap(640, 480, Bitmap.Config.ARGB_8888)
+        bitmap.eraseColor(Color.BLUE)
+        val canvas = Canvas(bitmap)
+        val paint = Paint().apply {
+            color = Color.WHITE
+            textSize = 50f
+        }
+        canvas.drawText("Camera Feed", 50f, 240f, paint)
+        Log.d(TAG, "Created dummy bitmap")
+        return bitmap
     }
 
     
