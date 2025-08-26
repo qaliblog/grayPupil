@@ -15,6 +15,8 @@ import android.os.Bundle
 import android.util.Log
 import android.util.Size
 import android.view.View
+import android.widget.SeekBar
+import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
@@ -40,6 +42,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var processedFrameView: ProcessedFrameView
     private lateinit var cameraExecutor: ExecutorService
     private var frameCount = 0
+    
+    // Threshold control variables
+    private var claheClipLimit = 15.0
+    private var cannyLowThreshold = 50.0
+    private var cannyHighThreshold = 150.0
     private var isOpenCVLoaded = false
 
     // OpenCV loader callback
@@ -120,6 +127,9 @@ class MainActivity : AppCompatActivity() {
         
         cameraExecutor = Executors.newSingleThreadExecutor()
         Log.d(TAG, "Camera executor created")
+        
+        // Setup threshold control SeekBars
+        setupThresholdControls()
 
         if (allPermissionsGranted()) {
             Log.d(TAG, "Camera permission granted, starting camera")
@@ -128,6 +138,53 @@ class MainActivity : AppCompatActivity() {
             Log.w(TAG, "Camera permission not granted, requesting permission")
             requestPermissions(arrayOf(android.Manifest.permission.CAMERA), CAMERA_PERMISSION_CODE)
         }
+    }
+    
+    private fun setupThresholdControls() {
+        val thresholdSeekBar = findViewById<SeekBar>(R.id.thresholdSeekBar)
+        val thresholdLabel = findViewById<TextView>(R.id.thresholdLabel)
+        val cannyLowSeekBar = findViewById<SeekBar>(R.id.cannyLowSeekBar)
+        val cannyHighSeekBar = findViewById<SeekBar>(R.id.cannyHighSeekBar)
+        val cannyLabel = findViewById<TextView>(R.id.cannyLabel)
+        
+        // CLAHE threshold control
+        thresholdSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                claheClipLimit = progress.toDouble().coerceAtLeast(1.0)
+                thresholdLabel.text = "Contrast Threshold: $claheClipLimit"
+                Log.d(TAG, "CLAHE clip limit updated to: $claheClipLimit")
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+        
+        // Canny low threshold control
+        cannyLowSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                cannyLowThreshold = progress.toDouble()
+                updateCannyLabel(cannyLabel)
+                Log.d(TAG, "Canny low threshold updated to: $cannyLowThreshold")
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+        
+        // Canny high threshold control
+        cannyHighSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                cannyHighThreshold = progress.toDouble()
+                updateCannyLabel(cannyLabel)
+                Log.d(TAG, "Canny high threshold updated to: $cannyHighThreshold")
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+        
+        Log.d(TAG, "Threshold controls setup complete")
+    }
+    
+    private fun updateCannyLabel(cannyLabel: TextView) {
+        cannyLabel.text = "Canny Low: ${cannyLowThreshold.toInt()} | High: ${cannyHighThreshold.toInt()}"
     }
 
     override fun onResume() {
@@ -295,9 +352,9 @@ class MainActivity : AppCompatActivity() {
             
             bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
             
-            // Rotate 90 degrees counter-clockwise
+            // Rotate to fix orientation (180 degrees total)
             val matrix = Matrix().apply {
-                postRotate(-90f) // Rotate 90 degrees counter-clockwise
+                postRotate(90f) // Rotate 90 degrees clockwise to fix the tilt
             }
             
             val finalBitmap = Bitmap.createBitmap(bitmap, 0, 0, width, height, matrix, true)
@@ -340,8 +397,8 @@ class MainActivity : AppCompatActivity() {
         val grayMat = Mat()
         Imgproc.cvtColor(mat, grayMat, Imgproc.COLOR_BGR2GRAY)
         
-        // Apply maximum CLAHE for extreme contrast enhancement
-        val clahe = Imgproc.createCLAHE(15.0, OpenCVSize(8.0, 8.0))
+        // Apply dynamic CLAHE for contrast enhancement
+        val clahe = Imgproc.createCLAHE(claheClipLimit, OpenCVSize(8.0, 8.0))
         val enhancedMat = Mat()
         clahe.apply(grayMat, enhancedMat)
         
@@ -387,8 +444,8 @@ class MainActivity : AppCompatActivity() {
         val grayMat = Mat()
         Imgproc.cvtColor(mat, grayMat, Imgproc.COLOR_BGR2GRAY)
         
-        // Apply maximum contrast enhancement for contour detection
-        val clahe = Imgproc.createCLAHE(20.0, OpenCVSize(8.0, 8.0))
+        // Apply dynamic contrast enhancement for contour detection
+        val clahe = Imgproc.createCLAHE(claheClipLimit, OpenCVSize(8.0, 8.0))
         val enhancedMat = Mat()
         clahe.apply(grayMat, enhancedMat)
         
@@ -405,9 +462,9 @@ class MainActivity : AppCompatActivity() {
         val blurredMat = Mat()
         Imgproc.GaussianBlur(morphMat, blurredMat, OpenCVSize(7.0, 7.0), 0.0)
         
-        // Apply Canny edge detection with adjusted thresholds for face detection
+        // Apply Canny edge detection with dynamic thresholds
         val edgesMat = Mat()
-        Imgproc.Canny(blurredMat, edgesMat, 50.0, 150.0)
+        Imgproc.Canny(blurredMat, edgesMat, cannyLowThreshold, cannyHighThreshold)
         
         // Find contours
         val contours = mutableListOf<MatOfPoint>()
