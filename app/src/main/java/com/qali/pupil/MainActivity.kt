@@ -334,36 +334,73 @@ class MainActivity : AppCompatActivity() {
         Log.d(TAG, "Camera rotation degrees: ${imageInfo.rotationDegrees}")
         
         return try {
-            // Convert YUV to bitmap with proper orientation
-            val yBuffer = planes[0].buffer
+            // Proper YUV_420_888 to grayscale conversion
+            val yPlane = planes[0]
+            val yBuffer = yPlane.buffer
             val ySize = yBuffer.remaining()
-            val yArray = ByteArray(ySize)
-            yBuffer.get(yArray)
+            val yPixelStride = yPlane.pixelStride
+            val yRowStride = yPlane.rowStride
             
-            // Create bitmap from Y channel (grayscale)
-            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            Log.d(TAG, "YUV details - PixelStride: $yPixelStride, RowStride: $yRowStride, BufferSize: $ySize")
+            Log.d(TAG, "Image dimensions: ${width}x${height}")
+            
+            // Create bitmap with proper pixel arrangement
             val pixels = IntArray(width * height)
+            var index = 0
             
-            for (i in 0 until width * height) {
-                val y = yArray[i].toInt() and 0xFF
-                // Simple grayscale conversion
-                val gray = y
-                pixels[i] = (0xFF shl 24) or (gray shl 16) or (gray shl 8) or gray
+            // Read Y channel properly considering stride
+            for (row in 0 until height) {
+                for (col in 0 until width) {
+                    val bufferIndex = row * yRowStride + col * yPixelStride
+                    if (bufferIndex < ySize) {
+                        val y = yBuffer.get(bufferIndex).toInt() and 0xFF
+                        pixels[index] = (0xFF shl 24) or (y shl 16) or (y shl 8) or y
+                    } else {
+                        pixels[index] = 0xFF000000.toInt() // Black for out of bounds
+                    }
+                    index++
+                }
             }
             
+            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
-            Log.d(TAG, "Original bitmap: ${bitmap.width}x${bitmap.height}")
+            Log.d(TAG, "YUV bitmap created: ${bitmap.width}x${bitmap.height}")
             
-            // Try 90 degrees clockwise rotation for portrait
+            // Apply rotation based on camera orientation
             val rotationDegrees = imageInfo.rotationDegrees
+            Log.d(TAG, "Camera rotation degrees: $rotationDegrees")
+            
             val matrix = Matrix().apply {
-                Log.d(TAG, "Applying 90° clockwise rotation to fix landscape")
-                postRotate(90f) // 90 degrees clockwise
+                when (rotationDegrees) {
+                    0 -> {
+                        Log.d(TAG, "No device rotation, applying 0° (testing natural)")
+                        // Try no rotation first
+                    }
+                    90 -> {
+                        Log.d(TAG, "Device rotated 90°, applying -90° correction")
+                        postRotate(-90f)
+                    }
+                    180 -> {
+                        Log.d(TAG, "Device rotated 180°, applying -180° correction")
+                        postRotate(-180f)
+                    }
+                    270 -> {
+                        Log.d(TAG, "Device rotated 270°, applying -270° correction")
+                        postRotate(-270f)
+                    }
+                    else -> {
+                        Log.d(TAG, "Unknown rotation $rotationDegrees, trying no rotation")
+                    }
+                }
             }
             
-            val finalBitmap = Bitmap.createBitmap(bitmap, 0, 0, width, height, matrix, true)
+            val finalBitmap = if (matrix.isIdentity) {
+                bitmap
+            } else {
+                Bitmap.createBitmap(bitmap, 0, 0, width, height, matrix, true)
+            }
             
-            Log.d(TAG, "Final bitmap: ${finalBitmap.width}x${finalBitmap.height}, camera rotation was: ${imageInfo.rotationDegrees}")
+            Log.d(TAG, "Final bitmap: ${finalBitmap.width}x${finalBitmap.height}")
             finalBitmap
 
         } catch (e: Exception) {
