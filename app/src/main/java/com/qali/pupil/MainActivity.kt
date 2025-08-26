@@ -352,9 +352,9 @@ class MainActivity : AppCompatActivity() {
             
             bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
             
-            // Rotate 270 degrees to fix landscape orientation
+            // Try -90 degrees (counter-clockwise) for portrait
             val matrix = Matrix().apply {
-                postRotate(270f) // Rotate 270 degrees (equivalent to -90 degrees)
+                postRotate(-90f) // Rotate -90 degrees counter-clockwise
             }
             
             val finalBitmap = Bitmap.createBitmap(bitmap, 0, 0, width, height, matrix, true)
