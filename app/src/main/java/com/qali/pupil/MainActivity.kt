@@ -371,34 +371,12 @@ class MainActivity : AppCompatActivity() {
             Log.d(TAG, "Camera rotation degrees: $rotationDegrees")
             
             val matrix = Matrix().apply {
-                when (rotationDegrees) {
-                    0 -> {
-                        Log.d(TAG, "No device rotation, applying 0° (testing natural)")
-                        // Try no rotation first
-                    }
-                    90 -> {
-                        Log.d(TAG, "Device rotated 90°, applying -90° correction")
-                        postRotate(-90f)
-                    }
-                    180 -> {
-                        Log.d(TAG, "Device rotated 180°, applying -180° correction")
-                        postRotate(-180f)
-                    }
-                    270 -> {
-                        Log.d(TAG, "Device rotated 270°, applying -270° correction")
-                        postRotate(-270f)
-                    }
-                    else -> {
-                        Log.d(TAG, "Unknown rotation $rotationDegrees, trying no rotation")
-                    }
-                }
+                Log.d(TAG, "FORCING 90° CLOCKWISE ROTATION TO FIX LANDSCAPE")
+                postRotate(90f) // Force 90 degrees clockwise - landscape to portrait
             }
             
-            val finalBitmap = if (matrix.isIdentity) {
-                bitmap
-            } else {
-                Bitmap.createBitmap(bitmap, 0, 0, width, height, matrix, true)
-            }
+            // Always apply the rotation matrix
+            val finalBitmap = Bitmap.createBitmap(bitmap, 0, 0, width, height, matrix, true)
             
             Log.d(TAG, "Final bitmap: ${finalBitmap.width}x${finalBitmap.height}")
             finalBitmap
