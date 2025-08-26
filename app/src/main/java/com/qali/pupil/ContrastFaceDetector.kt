@@ -11,37 +11,29 @@ import org.opencv.objdetect.CascadeClassifier
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
-import kotlin.math.*
 
 class ContrastFaceDetector(private val context: Context) {
     companion object {
         private const val TAG = "ContrastFaceDetector"
         
-        // Haar cascade parameters (standard Python OpenCV values)
+        // Standard Python OpenCV parameters
         private const val SCALE_FACTOR = 1.1
-        private const val MIN_NEIGHBORS = 3
-        private const val MIN_SIZE_RATIO = 0.1 // Minimum face size as ratio of image
-        
-        // Contrast enhancement parameters
-        private const val CONTRAST_ALPHA = 1.5  // Contrast multiplier
-        private const val BRIGHTNESS_BETA = 10  // Brightness offset
-        private const val HISTOGRAM_CLIP_LIMIT = 2.0
-        private const val CLAHE_GRID_SIZE = 8
+        private const val MIN_NEIGHBORS = 4
+        private const val MIN_SIZE_FACTOR = 0.1  // Min face size as fraction of image
     }
 
-    private val grayMat = Mat()
-    private val enhancedMat = Mat()
-    private val heatmapMat = Mat()
-    private val faces = MatOfRect()
-    private var cascadeClassifier: CascadeClassifier? = null
+    // OpenCV Mats (following Python variable naming)
+    private val gray = Mat()           // gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    private val faces = MatOfRect()    // faces = face_cascade.detectMultiScale(gray, 1.1, 4)
+    private var faceCascade: CascadeClassifier? = null  // face_cascade = cv2.CascadeClassifier(...)
 
     init {
-        loadHaarCascade()
+        loadCascadeClassifier()
     }
 
-    private fun loadHaarCascade() {
+    // Step 1: Load Haar cascade (Python: face_cascade = cv2.CascadeClassifier(...))
+    private fun loadCascadeClassifier() {
         try {
-            // Load the Haar cascade from assets (standard frontal face cascade)
             val inputStream: InputStream = context.assets.open("haarcascade_frontalface_alt.xml")
             val cascadeDir = context.getDir("cascade", Context.MODE_PRIVATE)
             val cascadeFile = File(cascadeDir, "haarcascade_frontalface_alt.xml")
@@ -55,64 +47,42 @@ class ContrastFaceDetector(private val context: Context) {
             inputStream.close()
             outputStream.close()
             
-            cascadeClassifier = CascadeClassifier(cascadeFile.absolutePath)
+            faceCascade = CascadeClassifier(cascadeFile.absolutePath)
             
-            if (cascadeClassifier?.empty() == true) {
-                Log.e(TAG, "Failed to load Haar cascade classifier")
-                cascadeClassifier = null
+            if (faceCascade?.empty() == true) {
+                Log.e(TAG, "Failed to load cascade classifier")
+                faceCascade = null
             } else {
-                Log.d(TAG, "Haar cascade classifier loaded successfully")
+                Log.d(TAG, "Cascade classifier loaded successfully")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error loading Haar cascade", e)
-            cascadeClassifier = null
+            Log.e(TAG, "Error loading cascade", e)
+            faceCascade = null
         }
     }
 
+    // Main detection method following exact Python OpenCV flow
     fun detectFaces(bitmap: Bitmap): List<RectF> {
         try {
-            Log.d(TAG, "Starting face detection on ${bitmap.width}x${bitmap.height} image")
+            // Python: img = cv2.imread('image.jpg')
+            val img = Mat(bitmap.height, bitmap.width, CvType.CV_8UC3)
+            Utils.bitmapToMat(bitmap, img)
             
-            // Convert bitmap to OpenCV Mat
-            val rgbMat = Mat(bitmap.height, bitmap.width, CvType.CV_8UC3)
-            Utils.bitmapToMat(bitmap, rgbMat)
+            // Python: gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            Imgproc.cvtColor(img, gray, Imgproc.COLOR_RGB2GRAY)
             
-            // Convert to grayscale (standard OpenCV flow)
-            Imgproc.cvtColor(rgbMat, grayMat, Imgproc.COLOR_RGB2GRAY)
+            // Optional: Apply histogram equalization for better contrast (common Python enhancement)
+            // Python: gray = cv2.equalizeHist(gray)
+            Imgproc.equalizeHist(gray, gray)
             
-            // Apply contrast enhancement and create heatmap (Python pattern)
-            val faceRegions = mutableListOf<RectF>()
+            // Python: faces = face_cascade.detectMultiScale(gray, 1.1, 4)
+            val detectedFaces = detectMultiScale()
             
-            // Method 1: Try Haar cascade first (if available)
-            if (cascadeClassifier != null) {
-                val haarFaces = detectWithHaarCascade()
-                if (haarFaces.isNotEmpty()) {
-                    Log.d(TAG, "Haar cascade found ${haarFaces.size} faces")
-                    faceRegions.addAll(haarFaces)
-                }
-            }
+            // Python: for (x, y, w, h) in faces: ...
+            val faceRectangles = convertToRectF(detectedFaces)
             
-            // Method 2: Enhance with contrast-based detection
-            val contrastFaces = detectWithContrastHeatmap()
-            if (contrastFaces.isNotEmpty()) {
-                Log.d(TAG, "Contrast heatmap found ${contrastFaces.size} additional regions")
-                faceRegions.addAll(contrastFaces)
-            }
-            
-            // Method 3: Fallback to edge-based detection
-            if (faceRegions.isEmpty()) {
-                val edgeFaces = detectWithEdges()
-                if (edgeFaces.isNotEmpty()) {
-                    Log.d(TAG, "Edge detection found ${edgeFaces.size} regions")
-                    faceRegions.addAll(edgeFaces)
-                }
-            }
-            
-            // Remove overlapping detections and return best candidates
-            val filteredFaces = filterOverlappingFaces(faceRegions)
-            Log.d(TAG, "Final result: ${filteredFaces.size} faces after filtering")
-            
-            return filteredFaces.take(2) // Limit to 2 best detections
+            Log.d(TAG, "Detected ${faceRectangles.size} faces using Python OpenCV pattern")
+            return faceRectangles
             
         } catch (e: Exception) {
             Log.e(TAG, "Error in face detection", e)
@@ -120,240 +90,139 @@ class ContrastFaceDetector(private val context: Context) {
         }
     }
     
-    private fun detectWithHaarCascade(): List<RectF> {
-        val faceRegions = mutableListOf<RectF>()
-        
-        try {
-            val classifier = cascadeClassifier ?: return faceRegions
-            
-            // Calculate minimum face size (standard Python approach)
-            val minSize = Size(
-                (grayMat.cols() * MIN_SIZE_RATIO).toDouble(),
-                (grayMat.rows() * MIN_SIZE_RATIO).toDouble()
-            )
-            
-            // Detect faces using standard Haar cascade parameters
-            classifier.detectMultiScale(
-                grayMat,
-                faces,
-                SCALE_FACTOR,
-                MIN_NEIGHBORS,
-                0,
-                minSize,
-                Size()
-            )
-            
-            val facesArray = faces.toArray()
-            Log.d(TAG, "Haar cascade detected ${facesArray.size} faces")
-            
-            for (face in facesArray) {
-                faceRegions.add(RectF(
-                    face.x.toFloat(),
-                    face.y.toFloat(),
-                    (face.x + face.width).toFloat(),
-                    (face.y + face.height).toFloat()
-                ))
-                Log.d(TAG, "Haar face: ${face.x},${face.y},${face.width}x${face.height}")
-            }
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in Haar cascade detection", e)
+    // Python: faces = face_cascade.detectMultiScale(gray, 1.1, 4)
+    private fun detectMultiScale(): Array<Rect> {
+        val classifier = faceCascade
+        if (classifier == null) {
+            Log.w(TAG, "Cascade classifier not loaded, using fallback detection")
+            return detectWithContrastFallback()
         }
         
-        return faceRegions
+        try {
+            // Calculate minimum face size (Python common practice)
+            val minSize = Size(
+                (gray.cols() * MIN_SIZE_FACTOR).toDouble(),
+                (gray.rows() * MIN_SIZE_FACTOR).toDouble()
+            )
+            
+            // Python: face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4)
+            classifier.detectMultiScale(
+                gray,                    // Input image
+                faces,                   // Output rectangles
+                SCALE_FACTOR,           // Scale factor (1.1)
+                MIN_NEIGHBORS,          // Min neighbors (4)
+                0,                      // Flags
+                minSize,                // Minimum size
+                Size()                  // Maximum size (empty = no limit)
+            )
+            
+            val detectedFaces = faces.toArray()
+            Log.d(TAG, "Haar cascade detected ${detectedFaces.size} faces")
+            
+            return detectedFaces
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in detectMultiScale", e)
+            return emptyArray()
+        }
     }
     
-    private fun detectWithContrastHeatmap(): List<RectF> {
-        val faceRegions = mutableListOf<RectF>()
-        
+    // Fallback method using contrast when Haar cascade is not available
+    private fun detectWithContrastFallback(): Array<Rect> {
         try {
-            // Step 1: Apply contrast enhancement (Python cv2.convertScaleAbs equivalent)
-            grayMat.convertTo(enhancedMat, CvType.CV_8UC1, CONTRAST_ALPHA, BRIGHTNESS_BETA.toDouble())
+            Log.d(TAG, "Using contrast-based fallback detection")
             
-            // Step 2: Apply CLAHE (Contrast Limited Adaptive Histogram Equalization)
-            val clahe = Imgproc.createCLAHE(HISTOGRAM_CLIP_LIMIT, Size(CLAHE_GRID_SIZE.toDouble(), CLAHE_GRID_SIZE.toDouble()))
-            clahe.apply(enhancedMat, heatmapMat)
+            // Apply additional contrast enhancement
+            val enhanced = Mat()
+            gray.convertTo(enhanced, CvType.CV_8UC1, 1.2, 10.0)
             
-            // Step 3: Create thermal/heatmap visualization
-            val thermalMat = Mat()
-            Imgproc.applyColorMap(heatmapMat, thermalMat, Imgproc.COLORMAP_JET)
+            // Find edges using Canny
+            val edges = Mat()
+            Imgproc.Canny(enhanced, edges, 50.0, 150.0)
             
-            // Step 4: Find regions with high thermal variance (face-like regions)
-            val kernelSize = 31
-            val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, Size(kernelSize.toDouble(), kernelSize.toDouble()))
-            
-            val morphMat = Mat()
-            Imgproc.morphologyEx(heatmapMat, morphMat, Imgproc.MORPH_TOPHAT, kernel)
-            
-            // Step 5: Threshold to find significant regions
-            val threshMat = Mat()
-            Imgproc.threshold(morphMat, threshMat, 30.0, 255.0, Imgproc.THRESH_BINARY)
-            
-            // Step 6: Find contours in thermal regions
+            // Find contours
             val contours = mutableListOf<MatOfPoint>()
             val hierarchy = Mat()
-            Imgproc.findContours(threshMat, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
+            Imgproc.findContours(edges, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
             
-            Log.d(TAG, "Heatmap method found ${contours.size} thermal regions")
+            val faceRects = mutableListOf<Rect>()
             
-            // Step 7: Filter contours for face-like characteristics
             for (contour in contours) {
                 val boundingRect = Imgproc.boundingRect(contour)
                 val area = Imgproc.contourArea(contour)
                 
-                // Size filtering
+                // Filter for face-like regions
                 if (boundingRect.width >= 60 && boundingRect.height >= 60 &&
                     boundingRect.width <= 300 && boundingRect.height <= 300 &&
                     area > 2000) {
                     
-                    // Aspect ratio filtering (faces are roughly square to slightly tall)
                     val aspectRatio = boundingRect.width.toDouble() / boundingRect.height.toDouble()
                     if (aspectRatio > 0.6 && aspectRatio < 1.4) {
-                        
-                        faceRegions.add(RectF(
-                            boundingRect.x.toFloat(),
-                            boundingRect.y.toFloat(),
-                            (boundingRect.x + boundingRect.width).toFloat(),
-                            (boundingRect.y + boundingRect.height).toFloat()
-                        ))
-                        Log.d(TAG, "Heatmap face: ${boundingRect.x},${boundingRect.y},${boundingRect.width}x${boundingRect.height}")
+                        faceRects.add(boundingRect)
                     }
                 }
             }
             
             // Cleanup
-            morphMat.release()
-            threshMat.release()
-            thermalMat.release()
+            enhanced.release()
+            edges.release()
             hierarchy.release()
             
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in contrast heatmap detection", e)
-        }
-        
-        return faceRegions
-    }
-    
-    private fun detectWithEdges(): List<RectF> {
-        val faceRegions = mutableListOf<RectF>()
-        
-        try {
-            // Fallback edge detection (simplified version)
-            val edgesMat = Mat()
-            Imgproc.Canny(grayMat, edgesMat, 50.0, 150.0)
-            
-            val contours = mutableListOf<MatOfPoint>()
-            val hierarchy = Mat()
-            Imgproc.findContours(edgesMat, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
-            
-            for (contour in contours) {
-                val boundingRect = Imgproc.boundingRect(contour)
-                val area = Imgproc.contourArea(contour)
-                
-                if (boundingRect.width >= 80 && boundingRect.height >= 80 &&
-                    boundingRect.width <= 400 && boundingRect.height <= 400 &&
-                    area > 5000) {
-                    
-                    val aspectRatio = boundingRect.width.toDouble() / boundingRect.height.toDouble()
-                    if (aspectRatio > 0.7 && aspectRatio < 1.3) {
-                        faceRegions.add(RectF(
-                            boundingRect.x.toFloat(),
-                            boundingRect.y.toFloat(),
-                            (boundingRect.x + boundingRect.width).toFloat(),
-                            (boundingRect.y + boundingRect.height).toFloat()
-                        ))
-                    }
-                }
-            }
-            
-            edgesMat.release()
-            hierarchy.release()
+            Log.d(TAG, "Contrast fallback found ${faceRects.size} face candidates")
+            return faceRects.toTypedArray()
             
         } catch (e: Exception) {
-            Log.e(TAG, "Error in edge detection", e)
+            Log.e(TAG, "Error in contrast fallback", e)
+            return emptyArray()
         }
-        
-        return faceRegions
     }
     
-    private fun filterOverlappingFaces(faces: List<RectF>): List<RectF> {
-        if (faces.size <= 1) return faces
+    // Python: for (x, y, w, h) in faces: cv2.rectangle(img, (x, y), (x+w, y+h), (255, 0, 0), 2)
+    private fun convertToRectF(detectedFaces: Array<Rect>): List<RectF> {
+        val rectangles = mutableListOf<RectF>()
         
-        val filtered = mutableListOf<RectF>()
-        val used = BooleanArray(faces.size)
-        
-        // Sort by area (largest first)
-        val sortedIndices = faces.indices.sortedByDescending { 
-            val face = faces[it]
-            (face.right - face.left) * (face.bottom - face.top)
+        for (face in detectedFaces) {
+            // Convert OpenCV Rect to Android RectF
+            // Python: (x, y, w, h) -> Android: (left, top, right, bottom)
+            val rectF = RectF(
+                face.x.toFloat(),                    // x -> left
+                face.y.toFloat(),                    // y -> top  
+                (face.x + face.width).toFloat(),     // x + w -> right
+                (face.y + face.height).toFloat()     // y + h -> bottom
+            )
+            rectangles.add(rectF)
+            
+            Log.d(TAG, "Face rectangle: x=${face.x}, y=${face.y}, w=${face.width}, h=${face.height}")
         }
         
-        for (i in sortedIndices) {
-            if (used[i]) continue
-            
-            val face1 = faces[i]
-            var hasOverlap = false
-            
-            // Check if this face overlaps significantly with any already accepted face
-            for (j in filtered.indices) {
-                if (calculateOverlap(face1, filtered[j]) > 0.3) {
-                    hasOverlap = true
-                    break
-                }
-            }
-            
-            if (!hasOverlap) {
-                filtered.add(face1)
-                used[i] = true
-            }
-        }
-        
-        return filtered
+        return rectangles
     }
     
-    private fun calculateOverlap(rect1: RectF, rect2: RectF): Float {
-        val intersectLeft = maxOf(rect1.left, rect2.left)
-        val intersectTop = maxOf(rect1.top, rect2.top)
-        val intersectRight = minOf(rect1.right, rect2.right)
-        val intersectBottom = minOf(rect1.bottom, rect2.bottom)
-        
-        if (intersectLeft >= intersectRight || intersectTop >= intersectBottom) {
-            return 0f
-        }
-        
-        val intersectArea = (intersectRight - intersectLeft) * (intersectBottom - intersectTop)
-        val area1 = (rect1.right - rect1.left) * (rect1.bottom - rect1.top)
-        val area2 = (rect2.right - rect2.left) * (rect2.bottom - rect2.top)
-        val unionArea = area1 + area2 - intersectArea
-        
-        return intersectArea / unionArea
-    }
-    
+    // Standard eye region estimation (common in Python OpenCV tutorials)
     fun getEyeRegions(faceRect: RectF): Pair<RectF, RectF>? {
         try {
-            // Standard eye position estimation (Python OpenCV pattern)
             val faceWidth = faceRect.right - faceRect.left
             val faceHeight = faceRect.bottom - faceRect.top
             
-            // Eyes are typically at 1/3 from top, 1/4 and 3/4 from left
-            val eyeY = faceRect.top + faceHeight * 0.33f
-            val eyeSize = faceWidth * 0.12f
+            // Standard proportions from Python OpenCV examples
+            val eyeY = faceRect.top + faceHeight * 0.35f
+            val eyeSize = faceWidth * 0.15f
             
-            val leftEyeX = faceRect.left + faceWidth * 0.25f
-            val rightEyeX = faceRect.left + faceWidth * 0.75f
+            val leftEyeX = faceRect.left + faceWidth * 0.3f
+            val rightEyeX = faceRect.left + faceWidth * 0.7f
             
             val leftEyeRect = RectF(
-                leftEyeX - eyeSize,
-                eyeY - eyeSize,
-                leftEyeX + eyeSize,
-                eyeY + eyeSize
+                leftEyeX - eyeSize/2,
+                eyeY - eyeSize/2,
+                leftEyeX + eyeSize/2,
+                eyeY + eyeSize/2
             )
             
             val rightEyeRect = RectF(
-                rightEyeX - eyeSize,
-                eyeY - eyeSize,
-                rightEyeX + eyeSize,
-                eyeY + eyeSize
+                rightEyeX - eyeSize/2,
+                eyeY - eyeSize/2,
+                rightEyeX + eyeSize/2,
+                eyeY + eyeSize/2
             )
             
             return Pair(leftEyeRect, rightEyeRect)
@@ -365,9 +234,7 @@ class ContrastFaceDetector(private val context: Context) {
     }
     
     fun release() {
-        grayMat.release()
-        enhancedMat.release()
-        heatmapMat.release()
+        gray.release()
         faces.release()
     }
 }
