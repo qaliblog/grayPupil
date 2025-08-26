@@ -60,8 +60,6 @@ dependencies {
     
     // Machine Learning
     implementation("org.tensorflow:tensorflow-lite:2.14.0")
-    // https://mvnrepository.com/artifact/com.google.mlkit/face-detection
-    runtimeOnly("com.google.mlkit:face-detection:16.1.7")
 
     // CameraX
     val cameraxVersion = "1.3.0"

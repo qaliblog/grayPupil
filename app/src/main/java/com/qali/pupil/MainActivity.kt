@@ -1,6 +1,7 @@
 package com.qali.pupil
 
 import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
@@ -15,13 +16,12 @@ import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.face.Face
-import com.google.mlkit.vision.face.FaceDetection
-import com.google.mlkit.vision.face.FaceDetectorOptions
 import org.tensorflow.lite.Interpreter
+import java.io.FileInputStream
+import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.nio.MappedByteBuffer
 import java.nio.channels.FileChannel
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -32,14 +32,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tflite: Interpreter
     private lateinit var overlayView: GazeOverlayView
     
-    // Face detection components
-    private val detector by lazy {
-        val options = FaceDetectorOptions.Builder()
-            .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
-            .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
-            .build()
-        FaceDetection.getClient(options)
-    }
+    // Contrast-based face detection components
+    private lateinit var contrastFaceDetector: ContrastFaceDetector
+    private var isOpenCVInitialized = false
 
     // Model parameters
     private val INPUT_SIZE = 64
@@ -49,8 +44,6 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "EyeTracking"
         private const val CAMERA_PERMISSION_CODE = 101
-        private const val LEFT_EYE = 1
-        private const val RIGHT_EYE = 2
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -62,12 +55,32 @@ class MainActivity : AppCompatActivity() {
         findViewById<android.widget.FrameLayout>(R.id.overlayContainer).addView(overlayView)
         
         cameraExecutor = Executors.newSingleThreadExecutor()
-        tflite = Interpreter(loadModelFile("gaze_model.tflite"))
+        
+        // Initialize OpenCV first, then start camera
+        initializeOpenCV()
 
         if (allPermissionsGranted()) {
-            startCamera()
+            // Camera will be started after OpenCV initialization
         } else {
             requestPermissions(arrayOf(android.Manifest.permission.CAMERA), CAMERA_PERMISSION_CODE)
+        }
+    }
+    
+    private fun initializeOpenCV() {
+        com.qali.pupil.OpenCVLoader.initializeOpenCV(this) {
+            runOnUiThread {
+                isOpenCVInitialized = true
+                contrastFaceDetector = ContrastFaceDetector()
+                
+                try {
+                    tflite = Interpreter(loadModelFile("gaze_model.tflite"))
+                    if (allPermissionsGranted()) {
+                        startCamera()
+                    }
+                } catch (e: IOException) {
+                    Log.e(TAG, "Error loading TensorFlow Lite model", e)
+                }
+            }
         }
     }
 
@@ -75,6 +88,11 @@ class MainActivity : AppCompatActivity() {
         ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
 
     private fun startCamera() {
+        if (!isOpenCVInitialized) {
+            Log.w(TAG, "OpenCV not initialized yet, waiting...")
+            return
+        }
+        
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
         cameraProviderFuture.addListener({
             val cameraProvider = cameraProviderFuture.get()
@@ -87,7 +105,7 @@ class MainActivity : AppCompatActivity() {
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
                 .also {
-                    it.setAnalyzer(cameraExecutor, FaceAnalyzer())
+                    it.setAnalyzer(cameraExecutor, ContrastFaceAnalyzer())
                 }
 
             try {
@@ -104,38 +122,35 @@ class MainActivity : AppCompatActivity() {
         }, ContextCompat.getMainExecutor(this))
     }
 
-    private inner class FaceAnalyzer : ImageAnalysis.Analyzer {
+    private inner class ContrastFaceAnalyzer : ImageAnalysis.Analyzer {
         override fun analyze(imageProxy: ImageProxy) {
-            val mediaImage = imageProxy.image ?: return
-            val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
+            if (!isOpenCVInitialized) {
+                imageProxy.close()
+                return
+            }
             
-            detector.process(image)
-                .addOnSuccessListener { faces ->
-                    if (faces.isNotEmpty()) processFace(faces[0], imageProxy)
+            try {
+                val bitmap = imageProxy.toBitmap()
+                val faces = contrastFaceDetector.detectFaces(bitmap)
+                
+                if (faces.isNotEmpty()) {
+                    processFace(faces[0], imageProxy)
                 }
-                .addOnCompleteListener { imageProxy.close() }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in face analysis", e)
+            } finally {
+                imageProxy.close()
+            }
         }
     }
 
-    private fun processFace(face: Face, imageProxy: ImageProxy) {
-        val leftEye = face.getLandmark(LEFT_EYE)?.position
-        val rightEye = face.getLandmark(RIGHT_EYE)?.position
+    private fun processFace(faceRect: RectF, imageProxy: ImageProxy) {
+        // Get eye regions based on face geometry
+        val eyeRegions = contrastFaceDetector.getEyeRegions(faceRect)
         
-        if (leftEye == null || rightEye == null) return
-
-        val eyeSize = (face.boundingBox.width() * 0.18).toInt()
-        val leftEyeRect = RectF(
-            leftEye.x - eyeSize,
-            leftEye.y - eyeSize,
-            leftEye.x + eyeSize,
-            leftEye.y + eyeSize
-        )
-        val rightEyeRect = RectF(
-            rightEye.x - eyeSize,
-            rightEye.y - eyeSize,
-            rightEye.x + eyeSize,
-            rightEye.y + eyeSize
-        )
+        if (eyeRegions == null) return
+        
+        val (leftEyeRect, rightEyeRect) = eyeRegions
 
         val leftEyeBitmap = cropAndConvert(imageProxy, leftEyeRect)
         val rightEyeBitmap = cropAndConvert(imageProxy, rightEyeRect)
@@ -161,18 +176,27 @@ class MainActivity : AppCompatActivity() {
         }
         
         val bitmap = imageProxy.toBitmap()
-        return Bitmap.createScaledBitmap(
-            Bitmap.createBitmap(bitmap, 
-                rect.left.toInt(), 
-                rect.top.toInt(),
-                rect.width().toInt(),
-                rect.height().toInt(),
-                matrix,
-                true),
-            INPUT_SIZE,
-            INPUT_SIZE,
-            true
-        )
+        
+        // Ensure crop coordinates are within bitmap bounds
+        val left = rect.left.toInt().coerceAtLeast(0)
+        val top = rect.top.toInt().coerceAtLeast(0)
+        val right = rect.right.toInt().coerceAtMost(bitmap.width)
+        val bottom = rect.bottom.toInt().coerceAtMost(bitmap.height)
+        val width = (right - left).coerceAtLeast(1)
+        val height = (bottom - top).coerceAtLeast(1)
+        
+        return try {
+            Bitmap.createScaledBitmap(
+                Bitmap.createBitmap(bitmap, left, top, width, height, matrix, true),
+                INPUT_SIZE,
+                INPUT_SIZE,
+                true
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Error cropping bitmap", e)
+            // Return a default bitmap if cropping fails
+            Bitmap.createBitmap(INPUT_SIZE, INPUT_SIZE, Bitmap.Config.RGB_565)
+        }
     }
 
     private fun ImageProxy.toBitmap(): Bitmap {
@@ -215,10 +239,31 @@ class MainActivity : AppCompatActivity() {
             fileDescriptor.declaredLength
         )
     }
+    
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == CAMERA_PERMISSION_CODE) {
+            if (allPermissionsGranted() && isOpenCVInitialized) {
+                startCamera()
+            } else {
+                Log.e(TAG, "Camera permission not granted")
+                finish()
+            }
+        }
+    }
 
     override fun onDestroy() {
         super.onDestroy()
-        tflite.close()
+        if (::tflite.isInitialized) {
+            tflite.close()
+        }
+        if (::contrastFaceDetector.isInitialized) {
+            contrastFaceDetector.release()
+        }
         cameraExecutor.shutdown()
     }
 }
