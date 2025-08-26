@@ -78,7 +78,7 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 Log.d(TAG, "OpenCV initialization completed successfully")
                 isOpenCVInitialized = true
-                contrastFaceDetector = ContrastFaceDetector()
+                contrastFaceDetector = ContrastFaceDetector(this@MainActivity)
                 
                 try {
                     tflite = Interpreter(loadModelFile("gaze_model.tflite"))
@@ -224,19 +224,9 @@ class MainActivity : AppCompatActivity() {
                 }
                 lastBitmapHash = bitmapHash
                 
-                // Try simple detection first with even more permissive settings
-                var faces = detectFacesBasic(bitmap)
-                Log.d(TAG, "Basic detection found ${faces.size} faces")
-                
-                if (faces.isEmpty()) {
-                    faces = contrastFaceDetector.detectFacesSimple(bitmap)
-                    Log.d(TAG, "Simple detection found ${faces.size} faces")
-                }
-                
-                if (faces.isEmpty()) {
-                    faces = contrastFaceDetector.detectFaces(bitmap)
-                    Log.d(TAG, "Advanced detection found ${faces.size} faces")
-                }
+                // Use the Python-pattern face detection (Haar + Contrast + Edges)
+                val faces = contrastFaceDetector.detectFaces(bitmap)
+                Log.d(TAG, "Python-pattern detection found ${faces.size} faces")
                 
                 // Update overlay with detected faces for visualization
                 runOnUiThread {
@@ -260,91 +250,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
     
-    // Very basic detection that should find any large rectangular area
-    private fun detectFacesBasic(bitmap: Bitmap): List<RectF> {
-        try {
-            Log.d(TAG, "Starting BASIC detection (analyzing actual pixels)")
-            
-            // Try to detect actual contrast in the image
-            val faces = mutableListOf<RectF>()
-            val width = bitmap.width
-            val height = bitmap.height
-            
-            // Sample the bitmap to find regions with contrast
-            val pixels = IntArray(width * height)
-            bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
-            
-            // Calculate average brightness
-            var totalBrightness = 0L
-            for (pixel in pixels) {
-                val r = (pixel shr 16) and 0xFF
-                val g = (pixel shr 8) and 0xFF
-                val b = pixel and 0xFF
-                totalBrightness += (r + g + b) / 3
-            }
-            val avgBrightness = totalBrightness / pixels.size
-            
-            Log.d(TAG, "Image average brightness: $avgBrightness")
-            
-            // Look for regions that are significantly different from average
-            val gridSize = 80 // Check larger 80x80 pixel regions to reduce small detections
-            val threshold = 40 // Higher brightness difference threshold
-            
-            for (y in 0 until height - gridSize step gridSize) { // No overlap to reduce detections
-                for (x in 0 until width - gridSize step gridSize) {
-                    var regionBrightness = 0L
-                    var pixelCount = 0
-                    
-                    // Calculate average brightness for this region
-                    for (ry in y until minOf(y + gridSize, height)) {
-                        for (rx in x until minOf(x + gridSize, width)) {
-                            val pixel = pixels[ry * width + rx]
-                            val r = (pixel shr 16) and 0xFF
-                            val g = (pixel shr 8) and 0xFF
-                            val b = pixel and 0xFF
-                            regionBrightness += (r + g + b) / 3
-                            pixelCount++
-                        }
-                    }
-                    
-                    if (pixelCount > 0) {
-                        val regionAvg = regionBrightness / pixelCount
-                        val contrast = kotlin.math.abs(regionAvg - avgBrightness)
-                        
-                        // If this region has significant contrast, consider it a potential face
-                        if (contrast > threshold) {
-                            val face = RectF(
-                                x.toFloat(),
-                                y.toFloat(),
-                                (x + gridSize).toFloat(),
-                                (y + gridSize).toFloat()
-                            )
-                            faces.add(face)
-                            Log.d(TAG, "Found contrasted region at $x,$y with contrast $contrast")
-                        }
-                    }
-                }
-            }
-            
-            // If no contrast regions found, return empty (let other methods try)
-            if (faces.isEmpty()) {
-                Log.d(TAG, "No contrasted regions found in basic detection")
-                return emptyList()
-            }
-            
-            // Sort by size and return largest regions (limit to 2 for cleaner display)
-            val sortedFaces = faces.sortedByDescending { 
-                (it.right - it.left) * (it.bottom - it.top) 
-            }.take(2)
-            
-            Log.d(TAG, "Basic detection found ${sortedFaces.size} contrasted regions")
-            return sortedFaces
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in basic detection", e)
-            return emptyList()
-        }
-    }
+
 
     private fun processFace(faceRect: RectF, imageProxy: ImageProxy) {
         // Get eye regions based on face geometry

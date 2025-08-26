@@ -57,41 +57,48 @@ class GazeOverlayView(context: Context) : View(context) {
             return cameraRect
         }
         
-        // Camera image aspect ratio
+        // CameraX PreviewView typically uses FILL_CENTER scale type
+        // This means the camera image is scaled to fill the view while maintaining aspect ratio
+        
         val cameraAspect = cameraWidth.toFloat() / cameraHeight.toFloat()
-        // Screen aspect ratio  
-        val screenAspect = width.toFloat() / height.toFloat()
+        val viewAspect = width.toFloat() / height.toFloat()
         
-        var scaleX: Float
-        var scaleY: Float
-        var offsetX = 0f
-        var offsetY = 0f
+        val scaleX: Float
+        val scaleY: Float
+        val offsetX: Float
+        val offsetY: Float
         
-        if (cameraAspect > screenAspect) {
-            // Camera is wider than screen - fit to screen height, center horizontally
+        if (cameraAspect > viewAspect) {
+            // Camera is wider - scale to fit height, crop width
             scaleY = height.toFloat() / cameraHeight.toFloat()
             scaleX = scaleY
             val scaledCameraWidth = cameraWidth * scaleX
             offsetX = (width - scaledCameraWidth) / 2f
+            offsetY = 0f
         } else {
-            // Camera is taller than screen - fit to screen width, center vertically  
+            // Camera is taller - scale to fit width, crop height  
             scaleX = width.toFloat() / cameraWidth.toFloat()
             scaleY = scaleX
             val scaledCameraHeight = cameraHeight * scaleY
+            offsetX = 0f
             offsetY = (height - scaledCameraHeight) / 2f
         }
         
-        // Apply transformation
+        // For front camera, we need to mirror horizontally (standard behavior)
+        val mirroredLeft = cameraWidth - cameraRect.right
+        val mirroredRight = cameraWidth - cameraRect.left
+        
         val screenRect = RectF(
-            cameraRect.left * scaleX + offsetX,
+            mirroredLeft * scaleX + offsetX,
             cameraRect.top * scaleY + offsetY,
-            cameraRect.right * scaleX + offsetX,
+            mirroredRight * scaleX + offsetX,
             cameraRect.bottom * scaleY + offsetY
         )
         
-        Log.d("GazeOverlay", "Transform camera(${cameraRect.left.toInt()},${cameraRect.top.toInt()},${cameraRect.right.toInt()},${cameraRect.bottom.toInt()}) -> screen(${screenRect.left.toInt()},${screenRect.top.toInt()},${screenRect.right.toInt()},${screenRect.bottom.toInt()})")
-        Log.d("GazeOverlay", "Scales: X=$scaleX, Y=$scaleY, Offsets: X=$offsetX, Y=$offsetY")
-        Log.d("GazeOverlay", "Aspects: camera=$cameraAspect, screen=$screenAspect")
+        Log.d("GazeOverlay", "Camera rect: (${cameraRect.left.toInt()},${cameraRect.top.toInt()}) to (${cameraRect.right.toInt()},${cameraRect.bottom.toInt()})")
+        Log.d("GazeOverlay", "Mirrored: ($mirroredLeft,$mirroredRight)")
+        Log.d("GazeOverlay", "Screen rect: (${screenRect.left.toInt()},${screenRect.top.toInt()}) to (${screenRect.right.toInt()},${screenRect.bottom.toInt()})")
+        Log.d("GazeOverlay", "Scale: $scaleX, Offset: ($offsetX, $offsetY)")
         
         return screenRect
     }
