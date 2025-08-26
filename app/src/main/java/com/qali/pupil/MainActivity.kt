@@ -69,10 +69,25 @@ class MainActivity : AppCompatActivity() {
         // Replace preview view with processed frame view
         val frameLayout = findViewById<android.widget.FrameLayout>(R.id.overlayContainer)
         frameLayout.removeAllViews()
+        
+        // Set proper layout parameters
+        val layoutParams = android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+        )
+        processedFrameView.layoutParams = layoutParams
         frameLayout.addView(processedFrameView)
         
         // Hide the original preview view
-        previewView.visibility = android.view.View.GONE
+        previewView.visibility = View.GONE
+        
+        Log.d(TAG, "ProcessedFrameView added to layout")
+        
+        // Test the display with a solid color bitmap
+        val testBitmap = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888)
+        testBitmap.eraseColor(Color.RED)
+        processedFrameView.updateFrame(testBitmap)
+        Log.d(TAG, "Test red bitmap displayed")
         
         cameraExecutor = Executors.newSingleThreadExecutor()
 
@@ -129,20 +144,27 @@ class MainActivity : AppCompatActivity() {
 
     private inner class ContourAnalyzer : ImageAnalysis.Analyzer {
         override fun analyze(imageProxy: ImageProxy) {
-            if (!isOpenCVLoaded) {
-                imageProxy.close()
-                return
-            }
-
             try {
                 // Convert imageProxy to bitmap
                 val bitmap = imageProxy.toBitmap()
+                Log.d(TAG, "Original bitmap: ${bitmap.width}x${bitmap.height}")
+                
+                if (!isOpenCVLoaded) {
+                    Log.w(TAG, "OpenCV not loaded, showing original frame")
+                    runOnUiThread {
+                        processedFrameView.updateFrame(bitmap)
+                    }
+                    imageProxy.close()
+                    return
+                }
                 
                 // Apply contrast enhancement
                 val enhancedBitmap = enhanceContrast(bitmap)
+                Log.d(TAG, "Enhanced bitmap: ${enhancedBitmap.width}x${enhancedBitmap.height}")
                 
                 // Detect contours and draw them on the enhanced bitmap
                 val contourBitmap = drawContoursOnBitmap(enhancedBitmap)
+                Log.d(TAG, "Contour bitmap: ${contourBitmap.width}x${contourBitmap.height}")
                 
                 // Display the processed frame
                 runOnUiThread {
@@ -152,7 +174,16 @@ class MainActivity : AppCompatActivity() {
                 Log.d(TAG, "Processed frame with contrast enhancement and contours")
                 
             } catch (e: Exception) {
-                Log.e(TAG, "Error processing frame: ${e.message}")
+                Log.e(TAG, "Error processing frame: ${e.message}", e)
+                // Fallback: try to show original frame
+                try {
+                    val bitmap = imageProxy.toBitmap()
+                    runOnUiThread {
+                        processedFrameView.updateFrame(bitmap)
+                    }
+                } catch (fallbackError: Exception) {
+                    Log.e(TAG, "Fallback also failed: ${fallbackError.message}")
+                }
             } finally {
                 imageProxy.close()
             }
@@ -207,7 +238,9 @@ class MainActivity : AppCompatActivity() {
         val buffer = planes[0].buffer
         val bytes = ByteArray(buffer.remaining())
         buffer.get(bytes)
-        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        Log.d(TAG, "Converted ImageProxy to bitmap: ${bitmap?.width}x${bitmap?.height}")
+        return bitmap ?: throw IllegalStateException("Failed to convert ImageProxy to Bitmap")
     }
 
     

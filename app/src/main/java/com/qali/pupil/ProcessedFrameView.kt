@@ -6,6 +6,7 @@ import android.graphics.Canvas
 import android.graphics.Matrix
 import android.util.AttributeSet
 import android.util.Log
+import android.widget.ImageView
 import androidx.appcompat.widget.AppCompatImageView
 
 class ProcessedFrameView @JvmOverloads constructor(
@@ -22,19 +23,14 @@ class ProcessedFrameView @JvmOverloads constructor(
         if (bitmap != null) {
             Log.d(TAG, "Updating frame: ${bitmap.width}x${bitmap.height}")
             
-            // Rotate bitmap for proper orientation
-            val matrix = Matrix().apply {
-                postRotate(90f) // Adjust rotation as needed
-            }
-            
-            val rotatedBitmap = Bitmap.createBitmap(
-                bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true
-            )
-            
             post {
-                setImageBitmap(rotatedBitmap)
+                setImageBitmap(bitmap)
+                scaleType = ImageView.ScaleType.CENTER_CROP
                 invalidate()
+                Log.d(TAG, "Frame set to ImageView")
             }
+        } else {
+            Log.w(TAG, "Received null bitmap")
         }
     }
     
