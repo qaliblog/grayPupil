@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Rect
+import android.util.Log
 import android.view.View
 import org.opencv.core.MatOfPoint
 import org.opencv.core.Point
@@ -28,21 +29,33 @@ class GazeOverlayView(context: Context) : View(context) {
     }
 
     fun updateGazePoint(x: Float, y: Float) {
-        gazeX = x * width
-        gazeY = y * height
-        invalidate()
+        if (width > 0 && height > 0) {
+            gazeX = x * width
+            gazeY = y * height
+            Log.d("GazeOverlay", "updateGazePoint: input($x, $y) -> screen($gazeX, $gazeY), view size: ${width}x${height}")
+            invalidate()
+        } else {
+            Log.w("GazeOverlay", "View not ready: ${width}x${height}, deferring update")
+        }
     }
     
     fun updateGazeAndContours(x: Float, y: Float, detectedContours: List<MatOfPoint>, faceBounds: Rect) {
-        gazeX = x * width
-        gazeY = y * height
-        contours = detectedContours
-        faceRect = faceBounds
-        invalidate()
+        if (width > 0 && height > 0) {
+            gazeX = x * width
+            gazeY = y * height
+            contours = detectedContours
+            faceRect = faceBounds
+            Log.d("GazeOverlay", "updateGazeAndContours: input($x, $y) -> screen($gazeX, $gazeY), contours: ${contours.size}, face: $faceBounds")
+            invalidate()
+        } else {
+            Log.w("GazeOverlay", "View not ready: ${width}x${height}, deferring update")
+        }
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
+        
+        Log.d("GazeOverlay", "onDraw: drawing at ($gazeX, $gazeY) on canvas ${canvas.width}x${canvas.height}")
         
         // Draw green square at gaze point
         val squareSize = 30f

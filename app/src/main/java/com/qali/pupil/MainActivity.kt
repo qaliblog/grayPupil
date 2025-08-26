@@ -159,7 +159,16 @@ class MainActivity : AppCompatActivity() {
             
             detector.process(image)
                 .addOnSuccessListener { faces: List<Face> ->
-                    if (faces.isNotEmpty()) processFace(faces[0], imageProxy)
+                    Log.d(TAG, "Detected ${faces.size} faces")
+                    if (faces.isNotEmpty()) {
+                        Log.d(TAG, "Processing face with bounds: ${faces[0].boundingBox}")
+                        processFace(faces[0], imageProxy)
+                    } else {
+                        // No faces detected, show center gaze point
+                        runOnUiThread {
+                            overlayView.updateGazePoint(0.5f, 0.5f)
+                        }
+                    }
                 }
                 .addOnCompleteListener { imageProxy.close() }
         }
@@ -194,6 +203,8 @@ class MainActivity : AppCompatActivity() {
         // Apply contrast enhancement and detect face contours
         val enhancedFace = enhanceContrast(faceBitmap)
         val detectedContours = detectFaceContours(enhancedFace)
+        
+        Log.d(TAG, "Detected ${detectedContours.size} contours")
         
         // Store contours for visualization
         faceContours.clear()
@@ -273,10 +284,11 @@ class MainActivity : AppCompatActivity() {
             val output = Array(1) { FloatArray(2) }
             interpreter.run(inputBuffer, output)
             Pair(output[0][0], output[0][1])
-        } ?: run {
-            // Mock gaze estimation - return center of screen
-            Pair(0.5f, 0.5f)
-        }
+                 } ?: run {
+             // Mock gaze estimation - return center of screen
+             Log.d(TAG, "Using mock gaze estimation - center of screen")
+             Pair(0.5f, 0.5f)
+         }
     }
 
     private fun addEyeToBuffer(bitmap: Bitmap, buffer: ByteBuffer) {
@@ -293,7 +305,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun enhanceContrast(bitmap: Bitmap): Bitmap {
-        if (!isOpenCVLoaded) return bitmap
+        if (!isOpenCVLoaded) {
+            Log.w(TAG, "OpenCV not loaded, skipping contrast enhancement")
+            return bitmap
+        }
         
         val mat = Mat()
         Utils.bitmapToMat(bitmap, mat)
@@ -319,7 +334,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun detectFaceContours(bitmap: Bitmap): List<MatOfPoint> {
-        if (!isOpenCVLoaded) return emptyList()
+        if (!isOpenCVLoaded) {
+            Log.w(TAG, "OpenCV not loaded, skipping contour detection")
+            return emptyList()
+        }
         
         val mat = Mat()
         Utils.bitmapToMat(bitmap, mat)
@@ -349,8 +367,10 @@ class MainActivity : AppCompatActivity() {
         // Filter contours by area - focus on larger face contours
         val filteredContours = contours.filter { contour ->
             val area = Imgproc.contourArea(contour)
-            area > 500.0 // Minimum area for face features
+            area > 50.0 // Minimum area for face features (reduced for 64x64 images)
         }
+        
+        Log.d(TAG, "Found ${contours.size} total contours, ${filteredContours.size} after filtering")
         
         mat.release()
         grayMat.release()
