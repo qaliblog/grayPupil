@@ -58,13 +58,13 @@ class ContrastFaceDetector {
                 
                 // Filter by area and size constraints
                 if (area > CONTOUR_AREA_THRESHOLD && 
-                    boundingRect.width() >= MIN_FACE_SIZE && 
-                    boundingRect.height() >= MIN_FACE_SIZE &&
-                    boundingRect.width() <= MAX_FACE_SIZE && 
-                    boundingRect.height() <= MAX_FACE_SIZE) {
+                    boundingRect.width >= MIN_FACE_SIZE && 
+                    boundingRect.height >= MIN_FACE_SIZE &&
+                    boundingRect.width <= MAX_FACE_SIZE && 
+                    boundingRect.height <= MAX_FACE_SIZE) {
                     
                     // Check aspect ratio (faces are roughly oval/circular)
-                    val aspectRatio = boundingRect.width().toDouble() / boundingRect.height().toDouble()
+                    val aspectRatio = boundingRect.width.toDouble() / boundingRect.height.toDouble()
                     
                     if (aspectRatio >= ASPECT_RATIO_MIN && aspectRatio <= ASPECT_RATIO_MAX) {
                         // Additional validation: check contour density and shape
@@ -72,8 +72,8 @@ class ContrastFaceDetector {
                             faceRegions.add(RectF(
                                 boundingRect.x.toFloat(),
                                 boundingRect.y.toFloat(),
-                                (boundingRect.x + boundingRect.width()).toFloat(),
-                                (boundingRect.y + boundingRect.height()).toFloat()
+                                (boundingRect.x + boundingRect.width).toFloat(),
+                                (boundingRect.y + boundingRect.height).toFloat()
                             ))
                         }
                     }
@@ -95,7 +95,7 @@ class ContrastFaceDetector {
         try {
             // Calculate contour area vs bounding rectangle area ratio
             val contourArea = Imgproc.contourArea(contour)
-            val rectArea = (boundingRect.width() * boundingRect.height()).toDouble()
+            val rectArea = (boundingRect.width * boundingRect.height).toDouble()
             val fillRatio = contourArea / rectArea
             
             // Faces typically have a fill ratio between 0.4 and 0.8
