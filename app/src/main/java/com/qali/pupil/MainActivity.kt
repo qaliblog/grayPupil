@@ -371,8 +371,8 @@ class MainActivity : AppCompatActivity() {
             Log.d(TAG, "Camera rotation degrees: $rotationDegrees")
             
             val matrix = Matrix().apply {
-                Log.d(TAG, "FORCING 90° CLOCKWISE ROTATION TO FIX LANDSCAPE")
-                postRotate(90f) // Force 90 degrees clockwise - landscape to portrait
+                Log.d(TAG, "FORCING 270° ROTATION (COUNTER-CLOCKWISE) TO FIX LANDSCAPE")
+                postRotate(270f) // Force 270 degrees (equivalent to -90 degrees)
             }
             
             // Always apply the rotation matrix
