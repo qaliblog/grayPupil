@@ -174,7 +174,7 @@ class MainActivity : AppCompatActivity() {
                 RectF(100f, 150f, 300f, 350f), // Center face
                 RectF(400f, 100f, 550f, 250f)  // Side face
             )
-            overlayView.updateFaceRegions(testFaces)
+            overlayView.updateFaceRegions(testFaces, 640, 480) // Use standard camera size
             overlayView.updateGazePoint(0.5f, 0.5f) // Center gaze point
         }
     }
@@ -239,11 +239,13 @@ class MainActivity : AppCompatActivity() {
                 
                 // Update overlay with detected faces for visualization
                 runOnUiThread {
-                    overlayView.updateFaceRegions(faces)
+                    overlayView.updateFaceRegions(faces, bitmap.width, bitmap.height)
                 }
                 
                 if (faces.isNotEmpty()) {
                     Log.d(TAG, "Processing face: ${faces[0]}")
+                    Log.d(TAG, "Camera frame size: ${bitmap.width}x${bitmap.height}")
+                    Log.d(TAG, "Face in camera coords: left=${faces[0].left}, top=${faces[0].top}, right=${faces[0].right}, bottom=${faces[0].bottom}")
                     processFace(faces[0], imageProxy)
                 } else {
                     Log.d(TAG, "No faces detected in frame $frameCount")

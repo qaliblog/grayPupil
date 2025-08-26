@@ -11,6 +11,7 @@ class GazeOverlayView(context: Context) : View(context) {
     private var gazeX: Float = 0f
     private var gazeY: Float = 0f
     private var faceRegions: List<RectF> = emptyList()
+    private var cameraSize: Pair<Int, Int>? = null
     
     private val gazePaint = Paint().apply {
         color = Color.RED
@@ -21,7 +22,7 @@ class GazeOverlayView(context: Context) : View(context) {
     private val facePaint = Paint().apply {
         color = Color.GREEN
         style = Paint.Style.STROKE
-        strokeWidth = 3f
+        strokeWidth = 5f
         isAntiAlias = true
     }
     
@@ -37,9 +38,36 @@ class GazeOverlayView(context: Context) : View(context) {
         invalidate()
     }
     
-    fun updateFaceRegions(regions: List<RectF>) {
-        faceRegions = regions
+    fun updateFaceRegions(regions: List<RectF>, cameraWidth: Int = 640, cameraHeight: Int = 480) {
+        cameraSize = Pair(cameraWidth, cameraHeight)
+        
+        // Transform face regions from camera coordinates to screen coordinates
+        faceRegions = regions.map { face ->
+            transformCameraToScreen(face, cameraWidth, cameraHeight)
+        }
         invalidate()
+    }
+    
+    private fun transformCameraToScreen(cameraRect: RectF, cameraWidth: Int, cameraHeight: Int): RectF {
+        if (width == 0 || height == 0) return cameraRect
+        
+        // Calculate scale factors
+        val scaleX = width.toFloat() / cameraWidth.toFloat()
+        val scaleY = height.toFloat() / cameraHeight.toFloat()
+        
+        // Simple direct mapping first (no mirroring)
+        val screenRect = RectF(
+            cameraRect.left * scaleX,
+            cameraRect.top * scaleY,
+            cameraRect.right * scaleX,
+            cameraRect.bottom * scaleY
+        )
+        
+        // Log the transformation for debugging
+        android.util.Log.d("GazeOverlay", "Transform: camera(${cameraRect.left},${cameraRect.top},${cameraRect.right},${cameraRect.bottom}) -> screen(${screenRect.left},${screenRect.top},${screenRect.right},${screenRect.bottom})")
+        android.util.Log.d("GazeOverlay", "Scale factors: scaleX=$scaleX, scaleY=$scaleY, screenSize=${width}x${height}, cameraSize=${cameraWidth}x${cameraHeight}")
+        
+        return screenRect
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -56,6 +84,14 @@ class GazeOverlayView(context: Context) : View(context) {
         canvas.drawCircle(gazeX, gazeY, 20f, gazePaint)
         
         // Draw debug info
-        canvas.drawText("Faces: ${faceRegions.size}", 50f, 100f, textPaint)
+        val cameraInfo = cameraSize?.let { "(${it.first}x${it.second})" } ?: ""
+        canvas.drawText("Faces: ${faceRegions.size} $cameraInfo", 50f, 100f, textPaint)
+        canvas.drawText("Screen: ${width}x${height}", 50f, 150f, textPaint)
+        
+        // Draw coordinate system info
+        if (faceRegions.isNotEmpty()) {
+            val face = faceRegions[0]
+            canvas.drawText("Face coords: ${face.left.toInt()},${face.top.toInt()}", 50f, 200f, textPaint)
+        }
     }
 }
