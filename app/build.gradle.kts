@@ -55,7 +55,8 @@ dependencies {
     implementation("com.google.android.material:material:1.11.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
 
-    // Note: OpenCV temporarily disabled - will add proper Android OpenCV later
+    // OpenCV for Android - using the working dependency
+    implementation("com.quickbirdstudios:opencv:4.5.3.0")
     
 
 
