@@ -7,14 +7,12 @@ import android.graphics.Paint
 import android.graphics.Rect
 import android.util.Log
 import android.view.View
-import org.opencv.core.MatOfPoint
-import org.opencv.core.Point
+// OpenCV imports temporarily removed
 
 class GazeOverlayView(context: Context) : View(context) {
     private var gazeX: Float = 0f
     private var gazeY: Float = 0f
-    private var contours: List<MatOfPoint> = emptyList()
-    private var faceRect: Rect? = null
+    // OpenCV contour functionality temporarily disabled
     
     private val gazePaint = Paint().apply {
         color = Color.GREEN
@@ -22,11 +20,7 @@ class GazeOverlayView(context: Context) : View(context) {
         isAntiAlias = true
     }
     
-    private val contourPaint = Paint().apply {
-        color = Color.GREEN
-        style = Paint.Style.FILL
-        isAntiAlias = true
-    }
+    // contourPaint temporarily removed
 
     fun updateGazePoint(x: Float, y: Float) {
         if (width > 0 && height > 0) {
@@ -39,18 +33,7 @@ class GazeOverlayView(context: Context) : View(context) {
         }
     }
     
-    fun updateGazeAndContours(x: Float, y: Float, detectedContours: List<MatOfPoint>, faceBounds: Rect) {
-        if (width > 0 && height > 0) {
-            gazeX = x * width
-            gazeY = y * height
-            contours = detectedContours
-            faceRect = faceBounds
-            Log.d("GazeOverlay", "updateGazeAndContours: input($x, $y) -> screen($gazeX, $gazeY), contours: ${contours.size}, face: $faceBounds")
-            invalidate()
-        } else {
-            Log.w("GazeOverlay", "View not ready: ${width}x${height}, deferring update")
-        }
-    }
+    // updateGazeAndContours temporarily disabled - OpenCV functionality removed
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
@@ -67,34 +50,6 @@ class GazeOverlayView(context: Context) : View(context) {
             gazePaint
         )
         
-        // Draw green squares for face contours
-        faceRect?.let { face ->
-            for (contour in contours) {
-                val points = contour.toArray()
-                if (points.isNotEmpty()) {
-                    // Draw green squares at contour points, scaled to face position
-                    val step = maxOf(1, points.size / 15) // Sample up to 15 points per contour
-                    for (i in points.indices step step) {
-                        val point = points[i]
-                        
-                        // Scale contour coordinates to face position on screen
-                        val scaleX = width.toFloat() / 640f // Assuming camera resolution
-                        val scaleY = height.toFloat() / 480f
-                        
-                        val x = (face.left + point.x.toFloat() * face.width() / 64) * scaleX // Scale from INPUT_SIZE
-                        val y = (face.top + point.y.toFloat() * face.height() / 64) * scaleY
-                        
-                        val contourSquareSize = 8f
-                        canvas.drawRect(
-                            x - contourSquareSize / 2,
-                            y - contourSquareSize / 2,
-                            x + contourSquareSize / 2,
-                            y + contourSquareSize / 2,
-                            contourPaint
-                        )
-                    }
-                }
-            }
-        }
+        // Contour drawing temporarily disabled - will re-add with OpenCV
     }
 }
