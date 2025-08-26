@@ -346,33 +346,39 @@ class MainActivity : AppCompatActivity() {
             Log.d(TAG, "YUV details - PixelStride: $yPixelStride, RowStride: $yRowStride, BufferSize: $ySize")
             Log.d(TAG, "Image dimensions: ${width}x${height}")
             
-            // Simple YUV conversion + MASSIVE rotation test
-            val pixels = IntArray(width * height)
+            // MANUAL TRANSPOSE - PHYSICALLY REARRANGE PIXELS FROM LANDSCAPE TO PORTRAIT
+            Log.d(TAG, "MANUAL TRANSPOSE: Converting ${width}x${height} landscape to ${height}x${width} portrait")
+            
+            val originalPixels = IntArray(width * height)
             var index = 0
             
+            // Read original pixels normally
             for (row in 0 until height) {
                 for (col in 0 until width) {
                     val bufferIndex = row * yRowStride + col * yPixelStride
                     if (bufferIndex < ySize) {
                         val y = yBuffer.get(bufferIndex).toInt() and 0xFF
-                        pixels[index] = (0xFF shl 24) or (y shl 16) or (y shl 8) or y
+                        originalPixels[index] = (0xFF shl 24) or (y shl 16) or (y shl 8) or y
                     } else {
-                        pixels[index] = 0xFF000000.toInt()
+                        originalPixels[index] = 0xFF000000.toInt()
                     }
                     index++
                 }
             }
             
-            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-            bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
-            
-            // EXTREME rotation test - try 180 degrees!
-            val matrix = Matrix().apply {
-                Log.d(TAG, "TRYING 180° ROTATION - FLIP UPSIDE DOWN")
-                postRotate(180f) // Maybe we need to flip it completely?
+            // TRANSPOSE PIXELS: Swap x,y coordinates manually
+            val transposedPixels = IntArray(width * height)
+            for (row in 0 until height) {
+                for (col in 0 until width) {
+                    val originalIndex = row * width + col
+                    val transposedIndex = col * height + (height - 1 - row) // Rotate 90° clockwise
+                    transposedPixels[transposedIndex] = originalPixels[originalIndex]
+                }
             }
             
-            val finalBitmap = Bitmap.createBitmap(bitmap, 0, 0, width, height, matrix, true)
+            // Create portrait bitmap with transposed pixels
+            val finalBitmap = Bitmap.createBitmap(height, width, Bitmap.Config.ARGB_8888)
+            finalBitmap.setPixels(transposedPixels, 0, height, 0, 0, height, width)
             
             Log.d(TAG, "Final bitmap: ${finalBitmap.width}x${finalBitmap.height}")
             finalBitmap
