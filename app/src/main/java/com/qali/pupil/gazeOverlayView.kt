@@ -68,8 +68,8 @@ class GazeOverlayView(context: Context) : View(context) {
                         val scaleX = width.toFloat() / 640f // Assuming camera resolution
                         val scaleY = height.toFloat() / 480f
                         
-                        val x = (face.left + point.x * face.width() / 64) * scaleX // Scale from INPUT_SIZE
-                        val y = (face.top + point.y * face.height() / 64) * scaleY
+                        val x = (face.left + point.x.toFloat() * face.width() / 64) * scaleX // Scale from INPUT_SIZE
+                        val y = (face.top + point.y.toFloat() * face.height() / 64) * scaleY
                         
                         val contourSquareSize = 8f
                         canvas.drawRect(
