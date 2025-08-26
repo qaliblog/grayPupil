@@ -12,6 +12,7 @@ import android.graphics.Rect
 import android.os.Bundle
 import android.util.Log
 import android.util.Size
+import android.view.View
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
@@ -34,9 +35,9 @@ import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity() {
     private lateinit var previewView: androidx.camera.view.PreviewView
+    private lateinit var processedFrameView: ProcessedFrameView
     private lateinit var cameraExecutor: ExecutorService
     private var isOpenCVLoaded = false
-    private var processedFrame: Bitmap? = null
 
     // OpenCV loader callback
     private val openCVLoaderCallback = object : BaseLoaderCallback(this) {
@@ -63,6 +64,16 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
         
         previewView = findViewById(R.id.previewView)
+        processedFrameView = ProcessedFrameView(this)
+        
+        // Replace preview view with processed frame view
+        val frameLayout = findViewById<android.widget.FrameLayout>(R.id.overlayContainer)
+        frameLayout.removeAllViews()
+        frameLayout.addView(processedFrameView)
+        
+        // Hide the original preview view
+        previewView.visibility = android.view.View.GONE
+        
         cameraExecutor = Executors.newSingleThreadExecutor()
 
         if (allPermissionsGranted()) {
@@ -133,8 +144,10 @@ class MainActivity : AppCompatActivity() {
                 // Detect contours and draw them on the enhanced bitmap
                 val contourBitmap = drawContoursOnBitmap(enhancedBitmap)
                 
-                // Store the processed frame
-                processedFrame = contourBitmap
+                // Display the processed frame
+                runOnUiThread {
+                    processedFrameView.updateFrame(contourBitmap)
+                }
                 
                 Log.d(TAG, "Processed frame with contrast enhancement and contours")
                 
@@ -167,10 +180,10 @@ class MainActivity : AppCompatActivity() {
         for (contour in contours) {
             val points = contour.toArray()
             if (points.isNotEmpty()) {
-                val step = maxOf(1, points.size / 20) // Sample points
+                val step = maxOf(1, points.size / 10) // More frequent sampling
                 for (i in points.indices step step) {
                     val point = points[i]
-                    val squareSize = 12f
+                    val squareSize = 16f // Larger squares for better visibility
                     
                     canvas.drawRect(
                         point.x.toFloat() - squareSize / 2,
@@ -182,6 +195,8 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+        
+        Log.d(TAG, "Drew ${contours.size} contours on bitmap")
         
         return mutableBitmap
     }
@@ -210,14 +225,20 @@ class MainActivity : AppCompatActivity() {
         val grayMat = Mat()
         Imgproc.cvtColor(mat, grayMat, Imgproc.COLOR_BGR2GRAY)
         
-        // Apply CLAHE (Contrast Limited Adaptive Histogram Equalization)
-        val clahe = Imgproc.createCLAHE(3.0, OpenCVSize(8.0, 8.0))
+        // Apply CLAHE (Contrast Limited Adaptive Histogram Equalization) with stronger enhancement
+        val clahe = Imgproc.createCLAHE(4.0, OpenCVSize(8.0, 8.0))
         val enhancedMat = Mat()
         clahe.apply(grayMat, enhancedMat)
         
+        // Convert enhanced grayscale back to RGB for display
+        val rgbMat = Mat()
+        Imgproc.cvtColor(enhancedMat, rgbMat, Imgproc.COLOR_GRAY2RGB)
+        
         // Convert back to bitmap
         val resultBitmap = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
-        Utils.matToBitmap(enhancedMat, resultBitmap)
+        Utils.matToBitmap(rgbMat, resultBitmap)
+        
+        rgbMat.release()
         
         mat.release()
         grayMat.release()
@@ -240,27 +261,27 @@ class MainActivity : AppCompatActivity() {
         Imgproc.cvtColor(mat, grayMat, Imgproc.COLOR_BGR2GRAY)
         
         // Apply contrast enhancement
-        val clahe = Imgproc.createCLAHE(2.0, OpenCVSize(8.0, 8.0))
+        val clahe = Imgproc.createCLAHE(3.0, OpenCVSize(8.0, 8.0))
         val enhancedMat = Mat()
         clahe.apply(grayMat, enhancedMat)
         
         // Apply Gaussian blur to reduce noise
         val blurredMat = Mat()
-        Imgproc.GaussianBlur(enhancedMat, blurredMat, OpenCVSize(5.0, 5.0), 0.0)
+        Imgproc.GaussianBlur(enhancedMat, blurredMat, OpenCVSize(3.0, 3.0), 0.0)
         
-        // Apply Canny edge detection
+        // Apply Canny edge detection with adjusted thresholds
         val edgesMat = Mat()
-        Imgproc.Canny(blurredMat, edgesMat, 50.0, 150.0)
+        Imgproc.Canny(blurredMat, edgesMat, 30.0, 100.0)
         
         // Find contours
         val contours = mutableListOf<MatOfPoint>()
         val hierarchy = Mat()
         Imgproc.findContours(edgesMat, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
         
-        // Filter contours by area - focus on larger face contours
+        // Filter contours by area - focus on significant contours
         val filteredContours = contours.filter { contour ->
             val area = Imgproc.contourArea(contour)
-            area > 50.0 // Minimum area for face features (reduced for 64x64 images)
+            area > 20.0 // Lower threshold to catch more contours
         }
         
         Log.d(TAG, "Found ${contours.size} total contours, ${filteredContours.size} after filtering")
