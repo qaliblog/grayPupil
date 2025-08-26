@@ -344,39 +344,32 @@ class MainActivity : AppCompatActivity() {
             Log.d(TAG, "YUV details - PixelStride: $yPixelStride, RowStride: $yRowStride, BufferSize: $ySize")
             Log.d(TAG, "Image dimensions: ${width}x${height}")
             
-            // Create bitmap with proper pixel arrangement
-            val pixels = IntArray(width * height)
+            // CREATE BITMAP IN PORTRAIT ORIENTATION BY SWAPPING DIMENSIONS
+            Log.d(TAG, "SWAPPING DIMENSIONS: Original ${width}x${height} -> Portrait ${height}x${width}")
+            
+            val portraitPixels = IntArray(width * height)
             var index = 0
             
-            // Read Y channel properly considering stride
-            for (row in 0 until height) {
-                for (col in 0 until width) {
+            // Read pixels and arrange them in portrait orientation
+            for (col in 0 until width) {  // Swap: iterate columns first
+                for (row in 0 until height) {  // Then rows
                     val bufferIndex = row * yRowStride + col * yPixelStride
                     if (bufferIndex < ySize) {
                         val y = yBuffer.get(bufferIndex).toInt() and 0xFF
-                        pixels[index] = (0xFF shl 24) or (y shl 16) or (y shl 8) or y
+                        portraitPixels[index] = (0xFF shl 24) or (y shl 16) or (y shl 8) or y
                     } else {
-                        pixels[index] = 0xFF000000.toInt() // Black for out of bounds
+                        portraitPixels[index] = 0xFF000000.toInt() // Black for out of bounds
                     }
                     index++
                 }
             }
             
-            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-            bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
-            Log.d(TAG, "YUV bitmap created: ${bitmap.width}x${bitmap.height}")
+            // Create bitmap with SWAPPED dimensions (portrait)
+            val finalBitmap = Bitmap.createBitmap(height, width, Bitmap.Config.ARGB_8888)
+            finalBitmap.setPixels(portraitPixels, 0, height, 0, 0, height, width)
+            Log.d(TAG, "PORTRAIT bitmap created: ${finalBitmap.width}x${finalBitmap.height}")
             
-            // Apply rotation based on camera orientation
-            val rotationDegrees = imageInfo.rotationDegrees
-            Log.d(TAG, "Camera rotation degrees: $rotationDegrees")
-            
-            val matrix = Matrix().apply {
-                Log.d(TAG, "FORCING 270° ROTATION (COUNTER-CLOCKWISE) TO FIX LANDSCAPE")
-                postRotate(270f) // Force 270 degrees (equivalent to -90 degrees)
-            }
-            
-            // Always apply the rotation matrix
-            val finalBitmap = Bitmap.createBitmap(bitmap, 0, 0, width, height, matrix, true)
+            // NO ROTATION NEEDED - already in portrait!
             
             Log.d(TAG, "Final bitmap: ${finalBitmap.width}x${finalBitmap.height}")
             finalBitmap
