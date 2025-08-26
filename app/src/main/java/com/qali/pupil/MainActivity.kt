@@ -120,6 +120,7 @@ class MainActivity : AppCompatActivity() {
                     .also {
                         it.setSurfaceProvider(previewView.surfaceProvider)
                         Log.d(TAG, "Preview surface provider set")
+                        Log.d(TAG, "PreviewView size: ${previewView.width}x${previewView.height}")
                     }
 
                 val imageAnalysis = ImageAnalysis.Builder()
@@ -286,11 +287,11 @@ class MainActivity : AppCompatActivity() {
             Log.d(TAG, "Image average brightness: $avgBrightness")
             
             // Look for regions that are significantly different from average
-            val gridSize = 40 // Check 40x40 pixel regions
-            val threshold = 30 // Brightness difference threshold
+            val gridSize = 80 // Check larger 80x80 pixel regions to reduce small detections
+            val threshold = 40 // Higher brightness difference threshold
             
-            for (y in 0 until height - gridSize step gridSize/2) {
-                for (x in 0 until width - gridSize step gridSize/2) {
+            for (y in 0 until height - gridSize step gridSize) { // No overlap to reduce detections
+                for (x in 0 until width - gridSize step gridSize) {
                     var regionBrightness = 0L
                     var pixelCount = 0
                     
@@ -331,10 +332,10 @@ class MainActivity : AppCompatActivity() {
                 return emptyList()
             }
             
-            // Sort by size and return largest regions
+            // Sort by size and return largest regions (limit to 2 for cleaner display)
             val sortedFaces = faces.sortedByDescending { 
                 (it.right - it.left) * (it.bottom - it.top) 
-            }.take(3)
+            }.take(2)
             
             Log.d(TAG, "Basic detection found ${sortedFaces.size} contrasted regions")
             return sortedFaces

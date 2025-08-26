@@ -233,10 +233,10 @@ class ContrastFaceDetector {
             
             Log.d(TAG, "Simple method: $validContours valid contours, returning ${faceRegions.size} regions")
             
-            // Sort by area and return largest candidates
+            // Sort by area and return largest candidates (limit to 2)
             return faceRegions.sortedByDescending { 
                 (it.right - it.left) * (it.bottom - it.top) 
-            }.take(3)
+            }.take(2)
             
         } catch (e: Exception) {
             Log.e(TAG, "Error in simple face detection", e)

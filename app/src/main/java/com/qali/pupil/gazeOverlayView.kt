@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
+import android.util.Log
 import android.view.View
 
 class GazeOverlayView(context: Context) : View(context) {
@@ -28,7 +29,7 @@ class GazeOverlayView(context: Context) : View(context) {
     
     private val textPaint = Paint().apply {
         color = Color.YELLOW
-        textSize = 40f
+        textSize = 30f
         isAntiAlias = true
     }
 
@@ -45,27 +46,52 @@ class GazeOverlayView(context: Context) : View(context) {
         faceRegions = regions.map { face ->
             transformCameraToScreen(face, cameraWidth, cameraHeight)
         }
+        
+        Log.d("GazeOverlay", "Updated ${regions.size} face regions, transformed to ${faceRegions.size} screen regions")
         invalidate()
     }
     
     private fun transformCameraToScreen(cameraRect: RectF, cameraWidth: Int, cameraHeight: Int): RectF {
-        if (width == 0 || height == 0) return cameraRect
+        if (width == 0 || height == 0) {
+            Log.w("GazeOverlay", "Screen dimensions not available yet")
+            return cameraRect
+        }
         
-        // Calculate scale factors
-        val scaleX = width.toFloat() / cameraWidth.toFloat()
-        val scaleY = height.toFloat() / cameraHeight.toFloat()
+        // Camera image aspect ratio
+        val cameraAspect = cameraWidth.toFloat() / cameraHeight.toFloat()
+        // Screen aspect ratio  
+        val screenAspect = width.toFloat() / height.toFloat()
         
-        // Simple direct mapping first (no mirroring)
+        var scaleX: Float
+        var scaleY: Float
+        var offsetX = 0f
+        var offsetY = 0f
+        
+        if (cameraAspect > screenAspect) {
+            // Camera is wider than screen - fit to screen height, center horizontally
+            scaleY = height.toFloat() / cameraHeight.toFloat()
+            scaleX = scaleY
+            val scaledCameraWidth = cameraWidth * scaleX
+            offsetX = (width - scaledCameraWidth) / 2f
+        } else {
+            // Camera is taller than screen - fit to screen width, center vertically  
+            scaleX = width.toFloat() / cameraWidth.toFloat()
+            scaleY = scaleX
+            val scaledCameraHeight = cameraHeight * scaleY
+            offsetY = (height - scaledCameraHeight) / 2f
+        }
+        
+        // Apply transformation
         val screenRect = RectF(
-            cameraRect.left * scaleX,
-            cameraRect.top * scaleY,
-            cameraRect.right * scaleX,
-            cameraRect.bottom * scaleY
+            cameraRect.left * scaleX + offsetX,
+            cameraRect.top * scaleY + offsetY,
+            cameraRect.right * scaleX + offsetX,
+            cameraRect.bottom * scaleY + offsetY
         )
         
-        // Log the transformation for debugging
-        android.util.Log.d("GazeOverlay", "Transform: camera(${cameraRect.left},${cameraRect.top},${cameraRect.right},${cameraRect.bottom}) -> screen(${screenRect.left},${screenRect.top},${screenRect.right},${screenRect.bottom})")
-        android.util.Log.d("GazeOverlay", "Scale factors: scaleX=$scaleX, scaleY=$scaleY, screenSize=${width}x${height}, cameraSize=${cameraWidth}x${cameraHeight}")
+        Log.d("GazeOverlay", "Transform camera(${cameraRect.left.toInt()},${cameraRect.top.toInt()},${cameraRect.right.toInt()},${cameraRect.bottom.toInt()}) -> screen(${screenRect.left.toInt()},${screenRect.top.toInt()},${screenRect.right.toInt()},${screenRect.bottom.toInt()})")
+        Log.d("GazeOverlay", "Scales: X=$scaleX, Y=$scaleY, Offsets: X=$offsetX, Y=$offsetY")
+        Log.d("GazeOverlay", "Aspects: camera=$cameraAspect, screen=$screenAspect")
         
         return screenRect
     }
@@ -73,25 +99,41 @@ class GazeOverlayView(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         
+        // Draw screen boundary for debugging
+        val boundaryPaint = Paint().apply {
+            color = Color.BLUE
+            style = Paint.Style.STROKE
+            strokeWidth = 2f
+        }
+        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), boundaryPaint)
+        
         // Draw detected face regions
         for (i in faceRegions.indices) {
             val face = faceRegions[i]
             canvas.drawRect(face, facePaint)
-            canvas.drawText("Face $i", face.left, face.top - 10, textPaint)
+            canvas.drawText("Face $i", face.left, face.top - 5, textPaint)
         }
         
         // Draw gaze point
-        canvas.drawCircle(gazeX, gazeY, 20f, gazePaint)
+        canvas.drawCircle(gazeX, gazeY, 15f, gazePaint)
         
         // Draw debug info
         val cameraInfo = cameraSize?.let { "(${it.first}x${it.second})" } ?: ""
-        canvas.drawText("Faces: ${faceRegions.size} $cameraInfo", 50f, 100f, textPaint)
-        canvas.drawText("Screen: ${width}x${height}", 50f, 150f, textPaint)
+        canvas.drawText("Faces: ${faceRegions.size} $cameraInfo", 10f, 50f, textPaint)
+        canvas.drawText("Screen: ${width}x${height}", 10f, 80f, textPaint)
         
-        // Draw coordinate system info
+        // Draw coordinate system info for first face
         if (faceRegions.isNotEmpty()) {
             val face = faceRegions[0]
-            canvas.drawText("Face coords: ${face.left.toInt()},${face.top.toInt()}", 50f, 200f, textPaint)
+            canvas.drawText("Face: (${face.left.toInt()},${face.top.toInt()})", 10f, 110f, textPaint)
         }
+        
+        // Draw center crosshair for reference
+        val centerPaint = Paint().apply {
+            color = Color.WHITE
+            strokeWidth = 1f
+        }
+        canvas.drawLine(width/2f - 20, height/2f, width/2f + 20, height/2f, centerPaint)
+        canvas.drawLine(width/2f, height/2f - 20, width/2f, height/2f + 20, centerPaint)
     }
 }
