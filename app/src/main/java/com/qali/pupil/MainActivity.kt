@@ -295,19 +295,12 @@ class MainActivity : AppCompatActivity() {
             
             bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
             
-            // Apply camera rotation if needed
+            // Rotate to horizontal orientation
             val matrix = Matrix().apply {
-                // Don't add extra 90 degree rotation - use only camera's natural rotation
-                if (imageInfo.rotationDegrees != 0) {
-                    postRotate(-imageInfo.rotationDegrees.toFloat()) // Negative to counteract
-                }
+                postRotate(90f) // Rotate 90 degrees to make it horizontal
             }
             
-            val finalBitmap = if (imageInfo.rotationDegrees != 0) {
-                Bitmap.createBitmap(bitmap, 0, 0, width, height, matrix, true)
-            } else {
-                bitmap
-            }
+            val finalBitmap = Bitmap.createBitmap(bitmap, 0, 0, width, height, matrix, true)
             
             Log.d(TAG, "Camera bitmap created: ${finalBitmap.width}x${finalBitmap.height}, rotation: ${imageInfo.rotationDegrees}")
             finalBitmap
@@ -347,14 +340,18 @@ class MainActivity : AppCompatActivity() {
         val grayMat = Mat()
         Imgproc.cvtColor(mat, grayMat, Imgproc.COLOR_BGR2GRAY)
         
-        // Apply CLAHE (Contrast Limited Adaptive Histogram Equalization)
-        val clahe = Imgproc.createCLAHE(4.0, OpenCVSize(8.0, 8.0))
+        // Apply very strong CLAHE for maximum contrast enhancement
+        val clahe = Imgproc.createCLAHE(8.0, OpenCVSize(8.0, 8.0))
         val enhancedMat = Mat()
         clahe.apply(grayMat, enhancedMat)
         
+        // Additional histogram equalization for even more contrast
+        val equalizedMat = Mat()
+        Imgproc.equalizeHist(enhancedMat, equalizedMat)
+        
         // Convert enhanced grayscale back to RGB for display
         val rgbMat = Mat()
-        Imgproc.cvtColor(enhancedMat, rgbMat, Imgproc.COLOR_GRAY2RGB)
+        Imgproc.cvtColor(equalizedMat, rgbMat, Imgproc.COLOR_GRAY2RGB)
         
         // Convert back to bitmap
         val resultBitmap = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
@@ -364,6 +361,7 @@ class MainActivity : AppCompatActivity() {
         mat.release()
         grayMat.release()
         enhancedMat.release()
+        equalizedMat.release()
         
         Log.d(TAG, "Contrast enhanced successfully")
         return resultBitmap
@@ -382,28 +380,32 @@ class MainActivity : AppCompatActivity() {
         val grayMat = Mat()
         Imgproc.cvtColor(mat, grayMat, Imgproc.COLOR_BGR2GRAY)
         
-        // Apply contrast enhancement
-        val clahe = Imgproc.createCLAHE(3.0, OpenCVSize(8.0, 8.0))
+        // Apply very strong contrast enhancement for contour detection
+        val clahe = Imgproc.createCLAHE(10.0, OpenCVSize(8.0, 8.0))
         val enhancedMat = Mat()
         clahe.apply(grayMat, enhancedMat)
         
+        // Additional histogram equalization for maximum edge visibility
+        val equalizedMat = Mat()
+        Imgproc.equalizeHist(enhancedMat, equalizedMat)
+        
         // Apply stronger Gaussian blur to focus on larger features
         val blurredMat = Mat()
-        Imgproc.GaussianBlur(enhancedMat, blurredMat, OpenCVSize(7.0, 7.0), 0.0)
+        Imgproc.GaussianBlur(equalizedMat, blurredMat, OpenCVSize(7.0, 7.0), 0.0)
         
-        // Apply Canny edge detection with higher thresholds for larger contours
+        // Apply Canny edge detection with adjusted thresholds for face detection
         val edgesMat = Mat()
-        Imgproc.Canny(blurredMat, edgesMat, 80.0, 200.0)
+        Imgproc.Canny(blurredMat, edgesMat, 50.0, 150.0)
         
         // Find contours
         val contours = mutableListOf<MatOfPoint>()
         val hierarchy = Mat()
         Imgproc.findContours(edgesMat, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
         
-        // Filter contours by area - only large face-sized contours
+        // Filter contours by area - more sensitive for face detection
         val imageArea = mat.width() * mat.height()
-        val minFaceArea = imageArea * 0.05  // At least 5% of image
-        val maxFaceArea = imageArea * 0.7   // At most 70% of image
+        val minFaceArea = imageArea * 0.02  // At least 2% of image (more sensitive)
+        val maxFaceArea = imageArea * 0.8   // At most 80% of image
         
         val filteredContours = contours.filter { contour ->
             val area = Imgproc.contourArea(contour)
@@ -417,6 +419,7 @@ class MainActivity : AppCompatActivity() {
         mat.release()
         grayMat.release()
         enhancedMat.release()
+        equalizedMat.release()
         blurredMat.release()
         edgesMat.release()
         hierarchy.release()
