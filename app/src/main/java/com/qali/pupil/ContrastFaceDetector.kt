@@ -184,8 +184,11 @@ class ContrastFaceDetector {
             
             Imgproc.cvtColor(rgbMat, grayMat, Imgproc.COLOR_RGB2GRAY)
             
+            // Apply histogram equalization to improve contrast
+            Imgproc.equalizeHist(grayMat, grayMat)
+            
             // Very permissive edge detection
-            Imgproc.Canny(grayMat, edgesMat, 20.0, 60.0)
+            Imgproc.Canny(grayMat, edgesMat, 15.0, 45.0)
             
             contours.clear()
             Imgproc.findContours(edgesMat, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
@@ -193,29 +196,47 @@ class ContrastFaceDetector {
             Log.d(TAG, "Simple method found ${contours.size} contours")
             
             val faceRegions = mutableListOf<RectF>()
+            var validContours = 0
             
-            for (contour in contours) {
+            for (i in contours.indices) {
+                val contour = contours[i]
                 val boundingRect = Imgproc.boundingRect(contour)
                 val area = Imgproc.contourArea(contour)
                 
-                // Very basic filtering - just size
-                if (area > 500 && 
-                    boundingRect.width >= 30 && 
-                    boundingRect.height >= 30 &&
-                    boundingRect.width <= 800 && 
-                    boundingRect.height <= 800) {
+                Log.d(TAG, "Simple contour $i: area=$area, size=${boundingRect.width}x${boundingRect.height}")
+                
+                // Very basic filtering - focus on face-like sizes
+                if (area > 1000 && 
+                    boundingRect.width >= 60 && 
+                    boundingRect.height >= 60 &&
+                    boundingRect.width <= 500 && 
+                    boundingRect.height <= 500) {
                     
-                    faceRegions.add(RectF(
-                        boundingRect.x.toFloat(),
-                        boundingRect.y.toFloat(),
-                        (boundingRect.x + boundingRect.width).toFloat(),
-                        (boundingRect.y + boundingRect.height).toFloat()
-                    ))
+                    // Basic aspect ratio check (faces are roughly 0.7 to 1.3 ratio)
+                    val aspectRatio = boundingRect.width.toDouble() / boundingRect.height.toDouble()
+                    if (aspectRatio > 0.5 && aspectRatio < 2.0) {
+                        validContours++
+                        faceRegions.add(RectF(
+                            boundingRect.x.toFloat(),
+                            boundingRect.y.toFloat(),
+                            (boundingRect.x + boundingRect.width).toFloat(),
+                            (boundingRect.y + boundingRect.height).toFloat()
+                        ))
+                        Log.d(TAG, "Simple contour $i accepted as face candidate")
+                    } else {
+                        Log.d(TAG, "Simple contour $i rejected - bad aspect ratio: $aspectRatio")
+                    }
+                } else {
+                    Log.d(TAG, "Simple contour $i rejected - size/area filter")
                 }
             }
             
-            Log.d(TAG, "Simple method returning ${faceRegions.size} regions")
-            return faceRegions.take(5)
+            Log.d(TAG, "Simple method: $validContours valid contours, returning ${faceRegions.size} regions")
+            
+            // Sort by area and return largest candidates
+            return faceRegions.sortedByDescending { 
+                (it.right - it.left) * (it.bottom - it.top) 
+            }.take(3)
             
         } catch (e: Exception) {
             Log.e(TAG, "Error in simple face detection", e)

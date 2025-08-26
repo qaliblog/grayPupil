@@ -180,6 +180,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private inner class ContrastFaceAnalyzer : ImageAnalysis.Analyzer {
+        private var lastBitmapHash = 0
+        
         override fun analyze(imageProxy: ImageProxy) {
             frameCount++
             
@@ -203,6 +205,23 @@ class MainActivity : AppCompatActivity() {
                 }
                 
                 Log.d(TAG, "Bitmap created: ${bitmap.width}x${bitmap.height}, config: ${bitmap.config}")
+                
+                // Analyze bitmap content to see if we're getting valid camera data
+                val pixels = IntArray(100) // Sample first 100 pixels
+                bitmap.getPixels(pixels, 0, 10, 0, 0, 10, 10)
+                val avgColor = pixels.average().toInt()
+                val variance = pixels.map { (it - avgColor) * (it - avgColor) }.average()
+                val bitmapHash = pixels.contentHashCode()
+                
+                Log.d(TAG, "Bitmap sample - avgColor: $avgColor, variance: $variance")
+                
+                // Check if camera is providing changing data
+                if (bitmapHash == lastBitmapHash) {
+                    Log.w(TAG, "WARNING: Camera data appears static/frozen!")
+                } else {
+                    Log.d(TAG, "Camera data is changing (good)")
+                }
+                lastBitmapHash = bitmapHash
                 
                 // Try simple detection first with even more permissive settings
                 var faces = detectFacesBasic(bitmap)
@@ -241,27 +260,82 @@ class MainActivity : AppCompatActivity() {
     // Very basic detection that should find any large rectangular area
     private fun detectFacesBasic(bitmap: Bitmap): List<RectF> {
         try {
-            Log.d(TAG, "Starting BASIC detection (no OpenCV)")
+            Log.d(TAG, "Starting BASIC detection (analyzing actual pixels)")
             
-            // Create some test regions based on bitmap size
+            // Try to detect actual contrast in the image
             val faces = mutableListOf<RectF>()
-            val width = bitmap.width.toFloat()
-            val height = bitmap.height.toFloat()
+            val width = bitmap.width
+            val height = bitmap.height
             
-            // Center region
-            val centerSize = minOf(width, height) * 0.4f
-            val centerX = width / 2f
-            val centerY = height / 2f
+            // Sample the bitmap to find regions with contrast
+            val pixels = IntArray(width * height)
+            bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
             
-            faces.add(RectF(
-                centerX - centerSize/2,
-                centerY - centerSize/2,
-                centerX + centerSize/2,
-                centerY + centerSize/2
-            ))
+            // Calculate average brightness
+            var totalBrightness = 0L
+            for (pixel in pixels) {
+                val r = (pixel shr 16) and 0xFF
+                val g = (pixel shr 8) and 0xFF
+                val b = pixel and 0xFF
+                totalBrightness += (r + g + b) / 3
+            }
+            val avgBrightness = totalBrightness / pixels.size
             
-            Log.d(TAG, "Basic detection created test face at center")
-            return faces
+            Log.d(TAG, "Image average brightness: $avgBrightness")
+            
+            // Look for regions that are significantly different from average
+            val gridSize = 40 // Check 40x40 pixel regions
+            val threshold = 30 // Brightness difference threshold
+            
+            for (y in 0 until height - gridSize step gridSize/2) {
+                for (x in 0 until width - gridSize step gridSize/2) {
+                    var regionBrightness = 0L
+                    var pixelCount = 0
+                    
+                    // Calculate average brightness for this region
+                    for (ry in y until minOf(y + gridSize, height)) {
+                        for (rx in x until minOf(x + gridSize, width)) {
+                            val pixel = pixels[ry * width + rx]
+                            val r = (pixel shr 16) and 0xFF
+                            val g = (pixel shr 8) and 0xFF
+                            val b = pixel and 0xFF
+                            regionBrightness += (r + g + b) / 3
+                            pixelCount++
+                        }
+                    }
+                    
+                    if (pixelCount > 0) {
+                        val regionAvg = regionBrightness / pixelCount
+                        val contrast = kotlin.math.abs(regionAvg - avgBrightness)
+                        
+                        // If this region has significant contrast, consider it a potential face
+                        if (contrast > threshold) {
+                            val face = RectF(
+                                x.toFloat(),
+                                y.toFloat(),
+                                (x + gridSize).toFloat(),
+                                (y + gridSize).toFloat()
+                            )
+                            faces.add(face)
+                            Log.d(TAG, "Found contrasted region at $x,$y with contrast $contrast")
+                        }
+                    }
+                }
+            }
+            
+            // If no contrast regions found, return empty (let other methods try)
+            if (faces.isEmpty()) {
+                Log.d(TAG, "No contrasted regions found in basic detection")
+                return emptyList()
+            }
+            
+            // Sort by size and return largest regions
+            val sortedFaces = faces.sortedByDescending { 
+                (it.right - it.left) * (it.bottom - it.top) 
+            }.take(3)
+            
+            Log.d(TAG, "Basic detection found ${sortedFaces.size} contrasted regions")
+            return sortedFaces
             
         } catch (e: Exception) {
             Log.e(TAG, "Error in basic detection", e)
