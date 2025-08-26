@@ -23,14 +23,7 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 
-import org.opencv.android.BaseLoaderCallback
-import org.opencv.android.LoaderCallbackInterface
-import org.opencv.android.OpenCVLoader
-import org.opencv.android.Utils
-import org.opencv.core.Mat
-import org.opencv.core.MatOfPoint
-import org.opencv.core.Size as OpenCVSize
-import org.opencv.imgproc.Imgproc
+// OpenCV imports temporarily removed - will re-add with proper Android OpenCV
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -39,22 +32,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var previewView: androidx.camera.view.PreviewView
     private lateinit var processedFrameView: ProcessedFrameView
     private lateinit var cameraExecutor: ExecutorService
-    private var isOpenCVLoaded = false
-
-    // OpenCV loader callback
-    private val openCVLoaderCallback = object : BaseLoaderCallback(this) {
-        override fun onManagerConnected(status: Int) {
-            when (status) {
-                LoaderCallbackInterface.SUCCESS -> {
-                    Log.d(TAG, "OpenCV loaded successfully")
-                    isOpenCVLoaded = true
-                }
-                else -> {
-                    super.onManagerConnected(status)
-                }
-            }
-        }
-    }
+    // OpenCV temporarily disabled
 
     companion object {
         private const val TAG = "ContourDetection"
@@ -122,16 +100,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    override fun onResume() {
-        super.onResume()
-        if (!OpenCVLoader.initDebug()) {
-            Log.d(TAG, "Internal OpenCV library not found. Using OpenCV Manager for initialization")
-            OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION, this, openCVLoaderCallback)
-        } else {
-            Log.d(TAG, "OpenCV library found inside package. Using it!")
-            openCVLoaderCallback.onManagerConnected(LoaderCallbackInterface.SUCCESS)
-        }
-    }
+    // onResume OpenCV initialization temporarily removed
 
     private fun allPermissionsGranted() = 
         ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
@@ -245,47 +214,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun drawContoursOnBitmap(bitmap: Bitmap): Bitmap {
-        if (!isOpenCVLoaded) return bitmap
-        
-        // Detect contours
-        val contours = detectImageContours(bitmap)
-        
-        // Create a mutable copy of the bitmap to draw on
-        val mutableBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true)
-        val canvas = Canvas(mutableBitmap)
-        
-        // Paint for green squares
-        val paint = Paint().apply {
-            color = Color.GREEN
-            style = Paint.Style.FILL
-            isAntiAlias = true
-        }
-        
-        // Draw green squares at contour points
-        for (contour in contours) {
-            val points = contour.toArray()
-            if (points.isNotEmpty()) {
-                val step = maxOf(1, points.size / 10) // More frequent sampling
-                for (i in points.indices step step) {
-                    val point = points[i]
-                    val squareSize = 16f // Larger squares for better visibility
-                    
-                    canvas.drawRect(
-                        point.x.toFloat() - squareSize / 2,
-                        point.y.toFloat() - squareSize / 2,
-                        point.x.toFloat() + squareSize / 2,
-                        point.y.toFloat() + squareSize / 2,
-                        paint
-                    )
-                }
-            }
-        }
-        
-        Log.d(TAG, "Drew ${contours.size} contours on bitmap")
-        
-        return mutableBitmap
-    }
+    // drawContoursOnBitmap temporarily removed - will re-add with OpenCV
 
 
 
@@ -353,89 +282,8 @@ class MainActivity : AppCompatActivity() {
 
     
 
-    private fun enhanceContrast(bitmap: Bitmap): Bitmap {
-        if (!isOpenCVLoaded) {
-            Log.w(TAG, "OpenCV not loaded, skipping contrast enhancement")
-            return bitmap
-        }
-        
-        val mat = Mat()
-        Utils.bitmapToMat(bitmap, mat)
-        
-        // Convert to grayscale for contrast enhancement
-        val grayMat = Mat()
-        Imgproc.cvtColor(mat, grayMat, Imgproc.COLOR_BGR2GRAY)
-        
-        // Apply CLAHE (Contrast Limited Adaptive Histogram Equalization) with stronger enhancement
-        val clahe = Imgproc.createCLAHE(4.0, OpenCVSize(8.0, 8.0))
-        val enhancedMat = Mat()
-        clahe.apply(grayMat, enhancedMat)
-        
-        // Convert enhanced grayscale back to RGB for display
-        val rgbMat = Mat()
-        Imgproc.cvtColor(enhancedMat, rgbMat, Imgproc.COLOR_GRAY2RGB)
-        
-        // Convert back to bitmap
-        val resultBitmap = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
-        Utils.matToBitmap(rgbMat, resultBitmap)
-        
-        rgbMat.release()
-        
-        mat.release()
-        grayMat.release()
-        enhancedMat.release()
-        
-        return resultBitmap
-    }
-
-    private fun detectImageContours(bitmap: Bitmap): List<MatOfPoint> {
-        if (!isOpenCVLoaded) {
-            Log.w(TAG, "OpenCV not loaded, skipping contour detection")
-            return emptyList()
-        }
-        
-        val mat = Mat()
-        Utils.bitmapToMat(bitmap, mat)
-        
-        // Convert to grayscale
-        val grayMat = Mat()
-        Imgproc.cvtColor(mat, grayMat, Imgproc.COLOR_BGR2GRAY)
-        
-        // Apply contrast enhancement
-        val clahe = Imgproc.createCLAHE(3.0, OpenCVSize(8.0, 8.0))
-        val enhancedMat = Mat()
-        clahe.apply(grayMat, enhancedMat)
-        
-        // Apply Gaussian blur to reduce noise
-        val blurredMat = Mat()
-        Imgproc.GaussianBlur(enhancedMat, blurredMat, OpenCVSize(3.0, 3.0), 0.0)
-        
-        // Apply Canny edge detection with adjusted thresholds
-        val edgesMat = Mat()
-        Imgproc.Canny(blurredMat, edgesMat, 30.0, 100.0)
-        
-        // Find contours
-        val contours = mutableListOf<MatOfPoint>()
-        val hierarchy = Mat()
-        Imgproc.findContours(edgesMat, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
-        
-        // Filter contours by area - focus on significant contours
-        val filteredContours = contours.filter { contour ->
-            val area = Imgproc.contourArea(contour)
-            area > 20.0 // Lower threshold to catch more contours
-        }
-        
-        Log.d(TAG, "Found ${contours.size} total contours, ${filteredContours.size} after filtering")
-        
-        mat.release()
-        grayMat.release()
-        enhancedMat.release()
-        blurredMat.release()
-        edgesMat.release()
-        hierarchy.release()
-        
-        return filteredContours
-    }
+    // OpenCV processing functions temporarily removed
+    // Will re-add with proper Android OpenCV dependency
 
     override fun onRequestPermissionsResult(
         requestCode: Int,

@@ -55,9 +55,7 @@ dependencies {
     implementation("com.google.android.material:material:1.11.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
 
-    // OpenCV for contrast detection
-    // https://mvnrepository.com/artifact/org.opencv/opencv
-    implementation("org.opencv:opencv:4.12.0")
+    // Note: OpenCV temporarily disabled - will add proper Android OpenCV later
     
 
 
