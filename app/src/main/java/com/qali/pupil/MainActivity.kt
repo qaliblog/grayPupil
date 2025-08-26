@@ -32,6 +32,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var previewView: androidx.camera.view.PreviewView
     private lateinit var processedFrameView: ProcessedFrameView
     private lateinit var cameraExecutor: ExecutorService
+    private var frameCount = 0
     // OpenCV temporarily disabled
 
     companion object {
@@ -77,17 +78,23 @@ class MainActivity : AppCompatActivity() {
         
         // Remove test bitmap after 3 seconds and show camera status
         processedFrameView.postDelayed({
-            Log.d(TAG, "Removing test bitmap, checking camera status")
-            val statusBitmap = Bitmap.createBitmap(400, 300, Bitmap.Config.ARGB_8888)
-            statusBitmap.eraseColor(Color.CYAN)
-            val canvas = Canvas(statusBitmap)
-            val paint = Paint().apply {
-                color = Color.BLACK
-                textSize = 24f
+            Log.d(TAG, "Test period over, checking if frames are coming...")
+            if (frameCount == 0) {
+                Log.w(TAG, "No frames received yet! Camera analyzer not being called")
+                val errorBitmap = Bitmap.createBitmap(400, 300, Bitmap.Config.ARGB_8888)
+                errorBitmap.eraseColor(Color.YELLOW)
+                val canvas = Canvas(errorBitmap)
+                val paint = Paint().apply {
+                    color = Color.RED
+                    textSize = 30f
+                }
+                canvas.drawText("NO CAMERA", 50f, 150f, paint)
+                canvas.drawText("FRAMES!", 50f, 200f, paint)
+                processedFrameView.updateFrame(errorBitmap)
+            } else {
+                Log.d(TAG, "Frames are coming through: $frameCount received")
             }
-            canvas.drawText("Waiting for camera...", 20f, 150f, paint)
-            processedFrameView.updateFrame(statusBitmap)
-        }, 3000)
+        }, 5000)
         
         cameraExecutor = Executors.newSingleThreadExecutor()
 
@@ -155,16 +162,17 @@ class MainActivity : AppCompatActivity() {
     private inner class ContourAnalyzer : ImageAnalysis.Analyzer {
         override fun analyze(imageProxy: ImageProxy) {
             try {
-                Log.d(TAG, "Analyzing frame: ${imageProxy.width}x${imageProxy.height}")
+                frameCount++
+                Log.d(TAG, "ANALYZER CALLED - Frame #$frameCount: ${imageProxy.width}x${imageProxy.height}")
                 
                 // Convert imageProxy to bitmap
                 val bitmap = imageProxy.toBitmap()
-                Log.d(TAG, "Original bitmap: ${bitmap.width}x${bitmap.height}")
+                Log.d(TAG, "Bitmap created: ${bitmap.width}x${bitmap.height}")
                 
                 // For now, just show the original frame to test conversion
                 runOnUiThread {
                     processedFrameView.updateFrame(bitmap)
-                    Log.d(TAG, "Frame sent to display")
+                    Log.d(TAG, "Frame #$frameCount sent to display")
                 }
                 
                 /*
@@ -222,26 +230,32 @@ class MainActivity : AppCompatActivity() {
         Log.d(TAG, "Converting ImageProxy format: ${format}, size: ${width}x${height}, planes: ${planes.size}")
         
         return try {
-            // Extremely simple approach - just create a test pattern with timestamp
+            // Create test pattern with frame counter
             val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            bitmap.eraseColor(Color.WHITE)
             
-            // For testing, create a moving pattern to prove frames are coming through
-            val time = System.currentTimeMillis() / 100
-            val pattern = (time % 256).toInt()
-            
-            // Create a simple pattern
-            val pixels = IntArray(width * height)
-            for (y in 0 until height) {
-                for (x in 0 until width) {
-                    val index = y * width + x
-                    // Create a moving gradient pattern
-                    val gray = ((x + y + pattern) % 256)
-                    pixels[index] = (0xFF shl 24) or (gray shl 16) or (gray shl 8) or gray
-                }
+            val canvas = Canvas(bitmap)
+            val paint = Paint().apply {
+                color = Color.BLACK
+                textSize = 40f
+                isAntiAlias = true
             }
             
-            bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
-            Log.d(TAG, "Test pattern created successfully: ${bitmap.width}x${bitmap.height}")
+            // Draw frame information
+            canvas.drawText("FRAME #$frameCount", 50f, 100f, paint)
+            canvas.drawText("Size: ${width}x${height}", 50f, 150f, paint)
+            canvas.drawText("Format: $format", 50f, 200f, paint)
+            canvas.drawText("Planes: ${planes.size}", 50f, 250f, paint)
+            
+            // Draw a moving pattern based on frame count
+            val patternPaint = Paint().apply {
+                color = Color.RED
+                style = Paint.Style.FILL
+            }
+            val x = (frameCount * 5) % width
+            canvas.drawCircle(x.toFloat(), 300f, 20f, patternPaint)
+            
+            Log.d(TAG, "Test pattern #$frameCount created: ${bitmap.width}x${bitmap.height}")
             bitmap
 
         } catch (e: Exception) {
