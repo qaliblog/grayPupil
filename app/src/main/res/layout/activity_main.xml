@@ -36,7 +36,7 @@
             android:id="@+id/thresholdSeekBar"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:max="50"
+            android:max="200"
             android:progress="15"
             android:layout_marginBottom="8dp" />
             
@@ -59,7 +59,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:max="200"
+                android:max="500"
                 android:progress="50"
                 android:layout_marginEnd="8dp" />
                 
@@ -68,7 +68,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:max="300"
+                android:max="1000"
                 android:progress="150"
                 android:layout_marginStart="8dp" />
                 
