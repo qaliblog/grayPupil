@@ -55,13 +55,10 @@ dependencies {
     implementation("com.google.android.material:material:1.11.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
 
-    // OpenCV (Android-compatible version)
+    // OpenCV for Android - using the working dependency
     implementation("com.quickbirdstudios:opencv:4.5.3.0")
     
-    // Machine Learning
-    implementation("org.tensorflow:tensorflow-lite:2.14.0")
-    // https://mvnrepository.com/artifact/com.google.mlkit/face-detection
-    runtimeOnly("com.google.mlkit:face-detection:16.1.7")
+
 
     // CameraX
     val cameraxVersion = "1.3.0"

@@ -14,4 +14,66 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+    <!-- Threshold Control Panel -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:background="#80000000"
+        android:orientation="vertical"
+        android:padding="16dp">
+        
+        <TextView
+            android:id="@+id/thresholdLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Contrast Threshold: 15.0"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:layout_marginBottom="8dp" />
+        
+        <SeekBar
+            android:id="@+id/thresholdSeekBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="200"
+            android:progress="15"
+            android:layout_marginBottom="8dp" />
+            
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Canny Low: 50 | High: 150"
+            android:id="@+id/cannyLabel"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:layout_marginBottom="4dp" />
+            
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+            
+            <SeekBar
+                android:id="@+id/cannyLowSeekBar"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:max="500"
+                android:progress="50"
+                android:layout_marginEnd="8dp" />
+                
+            <SeekBar
+                android:id="@+id/cannyHighSeekBar"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:max="1000"
+                android:progress="150"
+                android:layout_marginStart="8dp" />
+                
+        </LinearLayout>
+        
+    </LinearLayout>
+
 </FrameLayout>
