@@ -222,61 +222,45 @@ class MainActivity : AppCompatActivity() {
         Log.d(TAG, "Converting ImageProxy format: ${format}, size: ${width}x${height}, planes: ${planes.size}")
         
         return try {
-            // Simple and robust YUV to RGB conversion
-            val yBuffer = planes[0].buffer
-            val uBuffer = planes[1].buffer
-            val vBuffer = planes[2].buffer
-
-            val ySize = yBuffer.remaining()
-            val uSize = uBuffer.remaining()
-            val vSize = vBuffer.remaining()
-
-            Log.d(TAG, "Buffer sizes - Y: $ySize, U: $uSize, V: $vSize")
-
-            val yPixelStride = planes[0].pixelStride
-            val uvPixelStride = planes[1].pixelStride
-            val uvRowStride = planes[1].rowStride
-
-            Log.d(TAG, "Strides - Y pixel: $yPixelStride, UV pixel: $uvPixelStride, UV row: $uvRowStride")
-
-            // Create RGB bitmap directly
+            // Extremely simple approach - just create a test pattern with timestamp
             val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            
+            // For testing, create a moving pattern to prove frames are coming through
+            val time = System.currentTimeMillis() / 100
+            val pattern = (time % 256).toInt()
+            
+            // Create a simple pattern
             val pixels = IntArray(width * height)
-
-            // Simple YUV to RGB conversion for testing
-            val yArray = ByteArray(ySize)
-            yBuffer.get(yArray)
-
-            for (i in 0 until width * height) {
-                val y = yArray[i].toInt() and 0xFF
-                // For now, just use Y channel (grayscale) to test conversion
-                val gray = (y - 16) * 255 / 219
-                val clampedGray = gray.coerceIn(0, 255)
-                pixels[i] = (0xFF shl 24) or (clampedGray shl 16) or (clampedGray shl 8) or clampedGray
+            for (y in 0 until height) {
+                for (x in 0 until width) {
+                    val index = y * width + x
+                    // Create a moving gradient pattern
+                    val gray = ((x + y + pattern) % 256)
+                    pixels[index] = (0xFF shl 24) or (gray shl 16) or (gray shl 8) or gray
+                }
             }
-
+            
             bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
-            Log.d(TAG, "Grayscale conversion successful: ${bitmap.width}x${bitmap.height}")
+            Log.d(TAG, "Test pattern created successfully: ${bitmap.width}x${bitmap.height}")
             bitmap
 
         } catch (e: Exception) {
-            Log.e(TAG, "All conversion methods failed: ${e.message}", e)
+            Log.e(TAG, "Even test pattern failed: ${e.message}", e)
             createTestPattern()
         }
     }
     
     private fun createTestPattern(): Bitmap {
         val bitmap = Bitmap.createBitmap(640, 480, Bitmap.Config.ARGB_8888)
-        bitmap.eraseColor(Color.MAGENTA)
+        bitmap.eraseColor(Color.BLUE)
         val canvas = Canvas(bitmap)
         val paint = Paint().apply {
             color = Color.WHITE
-            textSize = 30f
+            textSize = 24f
         }
-        canvas.drawText("Camera Format", 50f, 200f, paint)
-        canvas.drawText("Conversion Failed", 50f, 250f, paint)
-        canvas.drawText("Check Logs", 50f, 300f, paint)
-        Log.d(TAG, "Created test pattern bitmap")
+        canvas.drawText("Camera conversion", 50f, 200f, paint)
+        canvas.drawText("failed - check logs", 50f, 240f, paint)
+        Log.d(TAG, "Created blue test pattern - camera conversion failed")
         return bitmap
     }
 
